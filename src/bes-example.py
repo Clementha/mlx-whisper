@@ -9,11 +9,14 @@ EPOCHS = 3
 LEARNING_RATE = 1e-5
 BATCH_SIZE = 3
 
-def whisper_without_fine_tuning(model, audio, device):
+def whisper_without_fine_tuning(model, audio_batch, device):
     options = whisper.DecodingOptions()
-    log_mel = whisper.log_mel_spectrogram(audio).to(device)
-    response = whisper.decode(model, log_mel, options)
-    return response.text
+    outputs = []
+    for audio in audio_batch:
+        log_mel = whisper.log_mel_spectrogram(audio).to(device)
+        response = whisper.decode(model, log_mel, options)
+        outputs.append(response.text)
+    return outputs
 
 # --- Set up Dataloaders for training and evaluation ---
 class AudioDataset(Dataset):
@@ -34,38 +37,54 @@ def train(model, tokenizer, train_dataloader):
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = torch.nn.CrossEntropyLoss()
 
+    # Prepare target token sequence (e.g., for dummy training target)
     ids = []
     ids += [tokenizer.sot]
     ids += [tokenizer.language_token]
     ids += [tokenizer.transcribe]
     ids += tokenizer.encode(" Hello, my name is Bes.")
     ids += [tokenizer.eot]
-    train_tokens = torch.tensor(ids, device=device).unsqueeze(0)
-
+    train_tokens = torch.tensor(ids, device=device).unsqueeze(0)  # [1, T]
 
     for epoch in range(EPOCHS):
-        print(f"----Epoch {epoch + 1}/{EPOCHS}----")
-        for batch_idx, batch in  enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{EPOCHS}")):
-            audio = batch.squeeze(0) # This might mean that it only grabs the first 
-            print("Whisper prediction without fine tuning: ", whisper_without_fine_tuning(model, audio, device))
+        print(f"\n---- Epoch {epoch + 1}/{EPOCHS} ----")
+        for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
+            audio_batch = batch.to(device)  # [B, N]
 
-            mel_unsqueezed = whisper.log_mel_spectrogram(audio).unsqueeze(0).to(device)
-            prediction = model(tokens=train_tokens, mel=mel_unsqueezed)
-            target = train_tokens[:, 1:].contiguous()  # Skip the start token
+            # Show whisper prediction without fine-tuning
+            print("Whisper predictions (no fine-tuning):")
+            predictions_raw = whisper_without_fine_tuning(model, audio_batch, device)
+            for i, text in enumerate(predictions_raw):
+                print(f"  Sample {i + 1}: {text}")
 
-            loss = criterion(prediction.transpose(1, 2), train_tokens)
+            # Compute log-mel spectrograms for batch
+            mel = whisper.log_mel_spectrogram(audio_batch).to(device)  # [B, 80, T]
+
+            # Repeat the token sequence for each item in the batch
+            B = mel.size(0)
+            train_tokens_batch = train_tokens.repeat(B, 1)  # [B, T]
+            target = train_tokens_batch[:, 1:].contiguous()  # [B, T-1]
+
+            # Forward pass
+            prediction = model(tokens=train_tokens_batch, mel=mel)  # [B, T, Vocab]
+            loss = criterion(prediction.transpose(1, 2), target)    # [B, V, T] vs [B, T]
+
+            # Backpropagation
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            prediction = model(tokens=train_tokens, mel=mel_unsqueezed)
-            prediction = prediction[:, :-1, :].contiguous()  # Remove the last token
+            # Predictions for logging
+            pred_tokens = torch.argmax(prediction[:, :-1, :], dim=-1).contiguous()  # [B, T-1]
 
-            print("Loss: ", loss.item())
-            # print("Ids Target: ", target.squeeze().tolist())
-            # print("Ids Pred: ", torch.argmax(prediction, dim=-1).squeeze().tolist())
-            print("Text target: ", tokenizer.decode(target.squeeze().tolist()))
-            print("Text pred: ", tokenizer.decode(torch.argmax(prediction, dim=-1).squeeze().tolist()))
+            print(f"Loss: {loss.item():.4f}")
+            for i in range(B):
+                print(f"Sample {i + 1}:")
+                print("  Target text:   ", tokenizer.decode(target[i].tolist()))
+                print("  Predicted text:", tokenizer.decode(pred_tokens[i].tolist()))
+
+def collate_fn(batch):
+    return torch.stack(batch, dim=0)  # [B, N]
 
 if __name__ == "__main__":
     device = get_device()
@@ -73,6 +92,6 @@ if __name__ == "__main__":
     tokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
 
     train_dataset = AudioDataset(["audio/Clem--Bes.m4a", "audio/Helen--Bes.m4a", "audio/Ethan--Bes.m4a"])
-    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
 
     train(model, tokenizer, train_dataloader)
