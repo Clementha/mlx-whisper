@@ -2,6 +2,9 @@ wandb/
 data/
 .DS_Store
 *.pth
+.m4a
+.mp3
+*.mp4
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

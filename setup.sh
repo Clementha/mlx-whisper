@@ -1,5 +1,5 @@
 apt update
-apt install nvtop htop tmux 
+apt install nvtop htop tmux ffmpeg
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
 uv sync
