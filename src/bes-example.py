@@ -67,7 +67,8 @@ def train(model, tokenizer, train_dataloader):
 
             # Forward pass
             prediction = model(tokens=train_tokens_batch, mel=mel)  # [B, T, Vocab]
-            loss = criterion(prediction.transpose(1, 2), target)    # [B, V, T] vs [B, T]
+            # Align prediction and target sequence lengths by slicing prediction
+            loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)    # [B, V, T] vs [B, T]
 
             # Backpropagation
             optimizer.zero_grad()
@@ -83,15 +84,12 @@ def train(model, tokenizer, train_dataloader):
                 print("  Target text:   ", tokenizer.decode(target[i].tolist()))
                 print("  Predicted text:", tokenizer.decode(pred_tokens[i].tolist()))
 
-def collate_fn(batch):
-    return torch.stack(batch, dim=0)  # [B, N]
-
 if __name__ == "__main__":
     device = get_device()
     model = whisper.load_model("tiny", device=device)
     tokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
 
     train_dataset = AudioDataset(["audio/Clem--Bes.m4a", "audio/Helen--Bes.m4a", "audio/Ethan--Bes.m4a"])
-    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
+    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     train(model, tokenizer, train_dataloader)
