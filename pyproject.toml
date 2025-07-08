@@ -3,8 +3,10 @@ name = "mlx-whisper"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 dependencies = [
-    "dotenv>=0.9.9",
-    "wandb>=0.21.0",
+    "ffmpeg>=1.4",
+    "ipykernel>=6.29.5",
+    "openai-whisper>=20250625",
+    "torch>=2.7.1",
 ]
