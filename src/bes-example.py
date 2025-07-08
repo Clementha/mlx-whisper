@@ -6,31 +6,33 @@ FILE_PATH = "src/Helen--Bes.m4a"
 
 device = get_device()
 model = whisper.load_model("tiny", device=device)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+criterion = torch.nn.CrossEntropyLoss()
+tokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
 
-# Load and process the audio file
 audio = whisper.load_audio(FILE_PATH)
 audio = whisper.pad_or_trim(audio)
 log_mel = whisper.log_mel_spectrogram(audio).to(device)
-tokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
 
-options = whisper.DecodingOptions()
-response = whisper.decode(model, log_mel, options)
-print("whisper prediction without fine tuning: ", response.text)
+def whisper_without_fine_tuning(model, file_path, device):
+    options = whisper.DecodingOptions()
+    response = whisper.decode(model, log_mel, options)
+    return response.text
+
+print("whisper prediction without fine tuning: ", whisper_without_fine_tuning(file_path=FILE_PATH, model=model, device=device))
 
 # Preparing input for target for the model to train on and learn
+model.train()
+
 ids = []
 ids += [tokenizer.sot]
 ids += [tokenizer.language_token]
 ids += [tokenizer.transcribe]
 ids += tokenizer.encode(" Hello, my name is Bes.")
 ids += [tokenizer.eot]
-
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
-criterion = torch.nn.CrossEntropyLoss()
-model.train()
-
 train_tokens = torch.tensor(ids, device=device).unsqueeze(0)
-mel_unsqueezed = log_mel.unsqueeze(0).to(device)
+
+mel_unsqueezed = whisper.log_mel_spectrogram(audio).unsqueeze(0).to(device)
 prediction = model(tokens=train_tokens, mel=mel_unsqueezed)
 target = train_tokens[:, 1:].contiguous()  # Skip the start token
 
