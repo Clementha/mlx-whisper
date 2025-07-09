@@ -4,9 +4,9 @@ import wandb
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from utils import get_device, init_wandb
+import os
 from train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch, average_whisper_accuracy_before_ft
 
-FILE_PATH = "audio/Clem--Bes.m4a"
 EPOCHS = 5
 LEARNING_RATE = 1e-5
 BATCH_SIZE = 3
@@ -16,7 +16,7 @@ class AudioDataset(Dataset):
         self.file_paths = file_path_list
 
     def __len__(self):
-        return 3
+        return len([f for f in os.listdir("audio") if os.path.isfile(os.path.join("audio", f))])
 
     def __getitem__(self, idx):
         file_path = self.file_paths[idx]
