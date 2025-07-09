@@ -22,9 +22,8 @@ class AudioDataset(Dataset):
         file_path = self.file_paths[idx]
         audio = whisper.load_audio(file_path)
         audio = whisper.pad_or_trim(audio)
-        ids = gen_token_ids_with_special_tokens(tokenizer, "Hello, my name is Bes.")
-        ids = torch.tensor(ids, dtype=torch.long)
-        return (audio, ids)
+        token_ids = gen_token_ids_with_special_tokens(tokenizer, "Hello, my name is Bes.")
+        return (audio, token_ids)
 
 
 def evaluate(model, tokenizer, eval_dataloader, batch_idx, wandb_pre_fine_tune_logs):
@@ -37,9 +36,9 @@ def evaluate(model, tokenizer, eval_dataloader, batch_idx, wandb_pre_fine_tune_l
     eval_text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
 
     with torch.no_grad():
-        for batch_idx, (audio, ids) in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
+        for batch_idx, (audio, token_ids) in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
             audio_batch = audio.to(device)
-            eval_tokens = ids.to(device)
+            eval_tokens = token_ids.to(device)
 
             mel = whisper.log_mel_spectrogram(audio_batch).to(device)  # [B, 80, T]
 
@@ -75,12 +74,12 @@ def train(model, tokenizer, train_dataloader, eval_dataloader):
     for epoch in range(EPOCHS):
         text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
         print(f"\n---- Epoch {epoch + 1}/{EPOCHS} ----")
-        for batch_idx, (audio, ids) in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
+        for batch_idx, (audio, token_ids) in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
             audio_batch = audio.to(device)  # [B, N]
             mel = whisper.log_mel_spectrogram(audio_batch).to(device)  # [B, 80, T]
 
             B = mel.size(0)
-            train_tokens_batch = ids.to(device)
+            train_tokens_batch = token_ids.to(device)
             target = train_tokens_batch[:, 1:].contiguous()  # [B, T-1]
             
             if epoch == 0 and batch_idx == 0:

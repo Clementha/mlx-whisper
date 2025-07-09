@@ -119,4 +119,4 @@ def gen_token_ids_with_special_tokens(tokenizer, text):
     ids += [tokenizer.no_timestamps]
     ids += tokenizer.encode(f" {text}")
     ids += [tokenizer.eot]
-    return ids
+    return torch.tensor(ids, dtype=torch.long)
