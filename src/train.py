@@ -6,7 +6,7 @@ from tqdm import tqdm
 from utils import get_device, init_wandb
 
 FILE_PATH = "audio/Clem--Bes.m4a"
-EPOCHS = 3
+EPOCHS = 2
 LEARNING_RATE = 1e-5
 BATCH_SIZE = 3
 
@@ -19,7 +19,6 @@ def whisper_without_fine_tuning(model, audio_batch, device):
         outputs.append(response.text)
     return outputs
 
-# --- Set up Dataloaders for training and evaluation ---
 class AudioDataset(Dataset):
     def __init__(self, file_path_list):
         self.file_paths = file_path_list
@@ -38,7 +37,6 @@ def train(model, tokenizer, train_dataloader):
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = torch.nn.CrossEntropyLoss()
 
-    # Prepare target token sequence (e.g., for dummy training target)
     ids = []
     ids += [tokenizer.sot]
     ids += [tokenizer.language_token]
@@ -48,57 +46,53 @@ def train(model, tokenizer, train_dataloader):
     ids += [tokenizer.eot]
     train_tokens = torch.tensor(ids, device=device).unsqueeze(0)  # [1, T]
 
+    wandb_pre_fine_tune_logs = []
     for epoch in range(EPOCHS):
-        text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "predicted", "target"])
+        text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
         print(f"\n---- Epoch {epoch + 1}/{EPOCHS} ----")
         for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
             audio_batch = batch.to(device)  # [B, N]
-            # Show whisper prediction without fine-tuning
-            print("Whisper predictions (no fine-tuning):")
-            predictions_raw = whisper_without_fine_tuning(model, audio_batch, device)
-            wandb_logs = {
-                "sample_num": [],
-                "pre_fine_tuning": [],
-            }
-            for i, text in enumerate(predictions_raw):
-                wandb_logs["pre_fine_tuning"].append(text)
-                wandb_logs["sample_num"].append(f"Sample {i + 1}")
-                print(f"  Sample {i + 1}: {text}")
+            if epoch == 0 and batch_idx == 0:
+                print("Whisper predictions (no fine-tuning):")
+                predictions_raw = whisper_without_fine_tuning(model, audio_batch, device)
+                for i, text in enumerate(predictions_raw):
+                    wandb_pre_fine_tune_logs.append(text)
+                    print(f"  Sample {i + 1}: {text}")
+                print("num logged", len(wandb_pre_fine_tune_logs))
 
-            # Compute log-mel spectrograms for batch
             mel = whisper.log_mel_spectrogram(audio_batch).to(device)  # [B, 80, T]
 
-            # Repeat the token sequence for each item in the batch
             B = mel.size(0)
             train_tokens_batch = train_tokens.repeat(B, 1)  # [B, T]
             target = train_tokens_batch[:, 1:].contiguous()  # [B, T-1]
 
-            # Forward pass
             prediction = model(tokens=train_tokens_batch, mel=mel)  # [B, T, Vocab]
-            # Align prediction and target sequence lengths by slicing prediction
             loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)    # [B, V, T] vs [B, T]
 
-            # Backpropagation
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            # Predictions for logging
             pred_tokens = torch.argmax(prediction[:, :-1, :], dim=-1).contiguous()  # [B, T-1]
             print(f"Loss: {loss.item():.4f}")
-            for i in range(B):
-                print(f"Sample {i + 1}:")
-                target_text = tokenizer.decode(target[i].tolist())
-                predicted_text = tokenizer.decode(pred_tokens[i].tolist())
-                text_table.add_data(
-                    wandb_logs["sample_num"][i],
-                    wandb_logs["pre_fine_tuning"][i],
-                    predicted_text,
-                    target_text
-                )
-                print("  Target text:   ", target_text)
-                print("  Predicted text:", predicted_text)
-            wandb.log({"epoch": epoch + 1, "loss": loss.item(), f"text_epoch_{epoch+1}": text_table})
+            if epoch == EPOCHS - 1 and batch_idx == 0:
+                for i in range(B):
+                    print(f"Sample {i + 1}:")
+                    target_text = tokenizer.decode(target[i].tolist())
+                    predicted_text = tokenizer.decode(pred_tokens[i].tolist())
+                    target_tokens = f"{target[i].squeeze().tolist()}"
+                    prediction_tokens = f"{torch.argmax(prediction[i], dim=-1).squeeze().tolist()}"
+                    text_table.add_data(
+                        f"Sample {i + 1}:",
+                        wandb_pre_fine_tune_logs[i],
+                        predicted_text,
+                        target_text,
+                        prediction_tokens,
+                        target_tokens
+                    )
+                    print("  Target text:   ", target_text)
+                    print("  Predicted text:", predicted_text)
+            wandb.log({"epoch": epoch + 1, "loss": loss.item(), f"text": text_table})
 
 if __name__ == "__main__":
     init_wandb()
