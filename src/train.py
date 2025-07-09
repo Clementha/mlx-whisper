@@ -49,14 +49,20 @@ def train(model, tokenizer, train_dataloader):
     train_tokens = torch.tensor(ids, device=device).unsqueeze(0)  # [1, T]
 
     for epoch in range(EPOCHS):
+        text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "predicted", "target"])
         print(f"\n---- Epoch {epoch + 1}/{EPOCHS} ----")
         for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
             audio_batch = batch.to(device)  # [B, N]
-
             # Show whisper prediction without fine-tuning
             print("Whisper predictions (no fine-tuning):")
             predictions_raw = whisper_without_fine_tuning(model, audio_batch, device)
+            wandb_logs = {
+                "sample_num": [],
+                "pre_fine_tuning": [],
+            }
             for i, text in enumerate(predictions_raw):
+                wandb_logs["pre_fine_tuning"].append(text)
+                wandb_logs["sample_num"].append(f"Sample {i + 1}")
                 print(f"  Sample {i + 1}: {text}")
 
             # Compute log-mel spectrograms for batch
@@ -80,11 +86,19 @@ def train(model, tokenizer, train_dataloader):
             # Predictions for logging
             pred_tokens = torch.argmax(prediction[:, :-1, :], dim=-1).contiguous()  # [B, T-1]
             print(f"Loss: {loss.item():.4f}")
-            wandb.log({"epoch": epoch + 1, "loss": loss.item()})
             for i in range(B):
                 print(f"Sample {i + 1}:")
-                print("  Target text:   ", tokenizer.decode(target[i].tolist()))
-                print("  Predicted text:", tokenizer.decode(pred_tokens[i].tolist()))
+                target_text = tokenizer.decode(target[i].tolist())
+                predicted_text = tokenizer.decode(pred_tokens[i].tolist())
+                text_table.add_data(
+                    wandb_logs["sample_num"][i],
+                    wandb_logs["pre_fine_tuning"][i],
+                    predicted_text,
+                    target_text
+                )
+                print("  Target text:   ", target_text)
+                print("  Predicted text:", predicted_text)
+            wandb.log({"epoch": epoch + 1, "loss": loss.item(), f"text_epoch_{epoch+1}": text_table})
 
 if __name__ == "__main__":
     init_wandb()
