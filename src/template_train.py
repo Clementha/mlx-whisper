@@ -30,8 +30,9 @@ def evaluate(model, tokenizer, eval_dataloader, batch_idx, wandb_pre_fine_tune_l
     total_loss = 0.0
     total_accuracy = 0.0
     total_batches = 0
-    ids = gen_token_ids_with_special_tokens(tokenizer, " Hello, my name is Bes.")
+    
     eval_text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
+    ids = gen_token_ids_with_special_tokens(tokenizer, "Hello, my name is Bes.")
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
@@ -67,8 +68,7 @@ def train(model, tokenizer, train_dataloader, eval_dataloader):
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = torch.nn.CrossEntropyLoss()
-
-    ids = gen_token_ids_with_special_tokens(tokenizer, " Hello, my name is Bes.")
+    ids = gen_token_ids_with_special_tokens(tokenizer, "Hello, my name is Bes.")
 
     wandb_pre_fine_tune_logs = []
     for epoch in range(EPOCHS):
