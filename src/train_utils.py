@@ -11,19 +11,19 @@ def _whisper_without_fine_tuning(model, audio_batch):
         outputs.append(response.text)
     return outputs
 
+def _filter_out_special_tokens(tokens):
+    # remove_ids = torch.arange(50257, 50363, device=tokens.device)
+    # mask = ~torch.isin(tokens, remove_ids)
+    mask = tokens <= 50257  # Keep only tokens with ID ≤ 50257
+    return tokens[mask]
 
-# TODO: This doesn't change 
 def compute_avg_accuracy_before_ft(prediction, target, batch_num, tokenizer):
     all_batch_accuracies = []
     for i in range(batch_num):
-        pred_tokens = prediction[i]
+        pred_tokens = _filter_out_special_tokens(prediction[i])
         print("pred_tokens: ", pred_tokens)
-        target_tokens = target[i].squeeze(0)
+        target_tokens = _filter_out_special_tokens(target[i].squeeze(0))
         print("target_tokens: ", target_tokens)
-        # remove_ids = torch.tensor([tokenizer.sot], device=pred_tokens.device)
-        # mask = ~torch.isin(target_tokens, remove_ids)
-        # target_tokens = target_tokens[mask]
-        # > 50256 to max 50363 
 
         # Handle padding and mask
         max_len = max(pred_tokens.shape[0], target_tokens.shape[0])

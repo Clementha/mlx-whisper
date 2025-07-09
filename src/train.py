@@ -44,16 +44,17 @@ def train(model, tokenizer, train_dataloader):
         print(f"\n---- Epoch {epoch + 1}/{EPOCHS} ----")
         for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
             audio_batch = batch.to(device)  # [B, N]
-            if epoch == 0 and batch_idx == 0:
-                log_without_fine_tuning(model, audio_batch, wandb_pre_fine_tune_logs)
 
             mel = whisper.log_mel_spectrogram(audio_batch).to(device)  # [B, 80, T]
 
             B = mel.size(0)
             train_tokens_batch = train_tokens.repeat(B, 1)  # [B, T]
             target = train_tokens_batch[:, 1:].contiguous()  # [B, T-1]
-            avg_whisper_accuracy = average_whisper_accuracy_before_ft(model, audio_batch, target, tokenizer)
-            print("average whisper accuracy :", avg_whisper_accuracy)
+            
+            if epoch == 0 and batch_idx == 0:
+                log_without_fine_tuning(model, audio_batch, wandb_pre_fine_tune_logs)
+                avg_whisper_accuracy = average_whisper_accuracy_before_ft(model, audio_batch, target, tokenizer)
+            
             prediction = model(tokens=train_tokens_batch, mel=mel)  # [B, T, Vocab]
             loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)    # [B, V, T] vs [B, T]
 
@@ -61,13 +62,11 @@ def train(model, tokenizer, train_dataloader):
             loss.backward()
             optimizer.step()
 
-            print(f"Loss: {loss.item():.4f}")
             avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
-            print(f"Average accuracy after training {avg_batch_accuracy:.2f}%")
 
             if epoch == EPOCHS - 1 and batch_idx == 0:
                 log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, B)
-            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "text": text_table, "avg_batch_accuracy": avg_batch_accuracy, "accuracy_improvement": avg_batch_accuracy - avg_whisper_accuracy})
+            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "text": text_table, "avg_batch_accuracy": avg_batch_accuracy, "avg_whisper_accuracy": avg_whisper_accuracy })
 
 if __name__ == "__main__":
     init_wandb()
