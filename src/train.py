@@ -42,6 +42,7 @@ def train(model, tokenizer, train_dataloader):
     ids += [tokenizer.sot]
     ids += [tokenizer.language_token]
     ids += [tokenizer.transcribe]
+    ids += [tokenizer.no_timestamps]
     ids += tokenizer.encode(" Hello, my name is Bes.")
     ids += [tokenizer.eot]
     train_tokens = torch.tensor(ids, device=device).unsqueeze(0)  # [1, T]
