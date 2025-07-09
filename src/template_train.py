@@ -5,7 +5,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from utils import get_device, init_wandb
 import os
-from train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch, average_whisper_accuracy_before_ft
+from template_train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch, average_whisper_accuracy_before_ft
 
 EPOCHS = 5
 LEARNING_RATE = 1e-5
