@@ -79,3 +79,4 @@ if __name__ == "__main__":
 
     train(model, tokenizer, train_dataloader)
     wandb.finish()
+    torch.save(model.state_dict(), "fine_tuned_whisper_tiny.pth")
