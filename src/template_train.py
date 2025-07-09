@@ -24,13 +24,14 @@ class AudioDataset(Dataset):
         return audio
 
 
-def evaluate(model, tokenizer, eval_dataloader):
+def evaluate(model, tokenizer, eval_dataloader, batch_idx, wandb_pre_fine_tune_logs):
     model.eval()
     criterion = torch.nn.CrossEntropyLoss()
     total_loss = 0.0
     total_accuracy = 0.0
     total_batches = 0
     ids = gen_token_ids_with_special_tokens(tokenizer, " Hello, my name is Bes.")
+    eval_text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
@@ -44,6 +45,9 @@ def evaluate(model, tokenizer, eval_dataloader):
 
             prediction = model(tokens=eval_tokens, mel=mel)  # [B, T, Vocab]
 
+            if batch_idx == 0:
+                log_predict_targets(eval_text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, 1)
+
             loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)
             total_loss += loss.item()
 
@@ -56,7 +60,7 @@ def evaluate(model, tokenizer, eval_dataloader):
     avg_accuracy = total_accuracy / total_batches if total_batches > 0 else 0
     print(f"Evaluation - Avg Loss: {avg_loss:.4f}, Avg Accuracy: {avg_accuracy:.4f}")
 
-    return avg_loss, avg_accuracy
+    return avg_loss, avg_accuracy, eval_text_table
 
 
 def train(model, tokenizer, train_dataloader, eval_dataloader):
@@ -91,12 +95,12 @@ def train(model, tokenizer, train_dataloader, eval_dataloader):
             optimizer.step()
 
             avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
-
+            
             if epoch == EPOCHS - 1 and batch_idx == 0:
                 log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, B)
-
-            eval_avg_loss, eval_avg_accuracy = evaluate(model, tokenizer, eval_dataloader)
-            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "training_text": text_table, "avg_batch_accuracy": avg_batch_accuracy, "avg_whisper_accuracy": avg_whisper_accuracy, "eval_avg_loss": eval_avg_loss, "eval_avg_accuracy": eval_avg_accuracy })
+            
+            eval_avg_loss, eval_avg_accuracy, eval_text_table = evaluate(model, tokenizer, eval_dataloader, batch_idx, wandb_pre_fine_tune_logs)
+            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "training_text": text_table, "avg_batch_accuracy": avg_batch_accuracy, "avg_whisper_accuracy": avg_whisper_accuracy, "eval_avg_loss": eval_avg_loss, "eval_avg_accuracy": eval_avg_accuracy, "eval_text_table": eval_text_table })
 
 
 if __name__ == "__main__":
