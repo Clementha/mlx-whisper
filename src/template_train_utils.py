@@ -109,3 +109,14 @@ def compute_avg_masked_accuracy_per_batch(prediction, target, batch_num):
 
     average_accuracy = sum(all_batch_accuracies) / len(all_batch_accuracies)
     return average_accuracy
+
+
+def gen_token_ids_with_special_tokens(tokenizer, text):
+    ids = []
+    ids += [tokenizer.sot]
+    ids += [tokenizer.language_token]
+    ids += [tokenizer.transcribe]
+    ids += [tokenizer.no_timestamps]
+    ids += tokenizer.encode(f" {text}")
+    ids += [tokenizer.eot]
+    return ids

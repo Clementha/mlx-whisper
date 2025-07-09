@@ -4,8 +4,7 @@ import wandb
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from utils import get_device, init_wandb
-import os
-from template_train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch, average_whisper_accuracy_before_ft
+from template_train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch, average_whisper_accuracy_before_ft, gen_token_ids_with_special_tokens
 
 EPOCHS = 5
 LEARNING_RATE = 1e-5
@@ -31,6 +30,7 @@ def evaluate(model, tokenizer, eval_dataloader):
     total_loss = 0.0
     total_accuracy = 0.0
     total_batches = 0
+    ids = gen_token_ids_with_special_tokens(tokenizer, " Hello, my name is Bes.")
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
@@ -39,14 +39,6 @@ def evaluate(model, tokenizer, eval_dataloader):
             mel = whisper.log_mel_spectrogram(audio_batch).to(device)  # [B, 80, T]
 
             B = mel.size(0)
-            # Prepare the same token sequence as in training (or adjust if needed)
-            ids = []
-            ids += [tokenizer.sot]
-            ids += [tokenizer.language_token]
-            ids += [tokenizer.transcribe]
-            ids += [tokenizer.no_timestamps]
-            ids += tokenizer.encode(" Hello, my name is Bes.")
-            ids += [tokenizer.eot]
             eval_tokens = torch.tensor(ids, device=device).unsqueeze(0).repeat(B, 1)  # [B, T]
             target = eval_tokens[:, 1:].contiguous()  # [B, T-1]
 
@@ -72,14 +64,7 @@ def train(model, tokenizer, train_dataloader, eval_dataloader):
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = torch.nn.CrossEntropyLoss()
 
-    ids = []
-    ids += [tokenizer.sot]
-    ids += [tokenizer.language_token]
-    ids += [tokenizer.transcribe]
-    ids += [tokenizer.no_timestamps]
-    ids += tokenizer.encode(" Hello, my name is Bes.")
-    ids += [tokenizer.eot]
-    train_tokens = torch.tensor(ids, device=device).unsqueeze(0)  # [1, T]
+    ids = gen_token_ids_with_special_tokens(tokenizer, " Hello, my name is Bes.")
 
     wandb_pre_fine_tune_logs = []
     for epoch in range(EPOCHS):
@@ -91,7 +76,7 @@ def train(model, tokenizer, train_dataloader, eval_dataloader):
             mel = whisper.log_mel_spectrogram(audio_batch).to(device)  # [B, 80, T]
 
             B = mel.size(0)
-            train_tokens_batch = train_tokens.repeat(B, 1)  # [B, T]
+            train_tokens_batch = torch.tensor(ids, device=device).unsqueeze(0).repeat(B, 1)
             target = train_tokens_batch[:, 1:].contiguous()  # [B, T-1]
             
             if epoch == 0 and batch_idx == 0:
@@ -109,8 +94,9 @@ def train(model, tokenizer, train_dataloader, eval_dataloader):
 
             if epoch == EPOCHS - 1 and batch_idx == 0:
                 log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, B)
+
             eval_avg_loss, eval_avg_accuracy = evaluate(model, tokenizer, eval_dataloader)
-            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "text": text_table, "avg_batch_accuracy": avg_batch_accuracy, "avg_whisper_accuracy": avg_whisper_accuracy, "eval_avg_loss": eval_avg_loss, "eval_avg_accuracy": eval_avg_accuracy })
+            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "training_text": text_table, "avg_batch_accuracy": avg_batch_accuracy, "avg_whisper_accuracy": avg_whisper_accuracy, "eval_avg_loss": eval_avg_loss, "eval_avg_accuracy": eval_avg_accuracy })
 
 
 if __name__ == "__main__":
