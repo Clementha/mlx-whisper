@@ -16,7 +16,7 @@ class AudioDataset(Dataset):
         self.file_paths = file_path_list
 
     def __len__(self):
-        return len([f for f in os.listdir("audio") if os.path.isfile(os.path.join("audio", f))])
+        return len(self.file_paths)
 
     def __getitem__(self, idx):
         file_path = self.file_paths[idx]
@@ -24,7 +24,50 @@ class AudioDataset(Dataset):
         audio = whisper.pad_or_trim(audio)
         return audio
 
-def train(model, tokenizer, train_dataloader):
+
+def evaluate(model, tokenizer, eval_dataloader):
+    model.eval()
+    criterion = torch.nn.CrossEntropyLoss()
+    total_loss = 0.0
+    total_accuracy = 0.0
+    total_batches = 0
+
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
+            audio_batch = batch.to(device)
+
+            mel = whisper.log_mel_spectrogram(audio_batch).to(device)  # [B, 80, T]
+
+            B = mel.size(0)
+            # Prepare the same token sequence as in training (or adjust if needed)
+            ids = []
+            ids += [tokenizer.sot]
+            ids += [tokenizer.language_token]
+            ids += [tokenizer.transcribe]
+            ids += [tokenizer.no_timestamps]
+            ids += tokenizer.encode(" Hello, my name is Bes.")
+            ids += [tokenizer.eot]
+            eval_tokens = torch.tensor(ids, device=device).unsqueeze(0).repeat(B, 1)  # [B, T]
+            target = eval_tokens[:, 1:].contiguous()  # [B, T-1]
+
+            prediction = model(tokens=eval_tokens, mel=mel)  # [B, T, Vocab]
+
+            loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)
+            total_loss += loss.item()
+
+            batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
+            total_accuracy += batch_accuracy
+
+            total_batches += 1
+
+    avg_loss = total_loss / total_batches if total_batches > 0 else 0
+    avg_accuracy = total_accuracy / total_batches if total_batches > 0 else 0
+    print(f"Evaluation - Avg Loss: {avg_loss:.4f}, Avg Accuracy: {avg_accuracy:.4f}")
+
+    return avg_loss, avg_accuracy
+
+
+def train(model, tokenizer, train_dataloader, eval_dataloader):
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = torch.nn.CrossEntropyLoss()
@@ -66,7 +109,9 @@ def train(model, tokenizer, train_dataloader):
 
             if epoch == EPOCHS - 1 and batch_idx == 0:
                 log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, B)
-            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "text": text_table, "avg_batch_accuracy": avg_batch_accuracy, "avg_whisper_accuracy": avg_whisper_accuracy })
+            eval_avg_loss, eval_avg_accuracy = evaluate(model, tokenizer, eval_dataloader)
+            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "text": text_table, "avg_batch_accuracy": avg_batch_accuracy, "avg_whisper_accuracy": avg_whisper_accuracy, "eval_avg_loss": eval_avg_loss, "eval_avg_accuracy": eval_avg_accuracy })
+
 
 if __name__ == "__main__":
     init_wandb()
@@ -74,9 +119,13 @@ if __name__ == "__main__":
     model = whisper.load_model("tiny", device=device)
     tokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
 
-    train_dataset = AudioDataset(["audio/Clem--Bes.m4a", "audio/Helen--Bes.m4a", "audio/Ethan--Bes.m4a"])
+    train_dataset = AudioDataset(["audio/Clem--Bes.m4a", "audio/Helen--Bes.m4a"])
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    train(model, tokenizer, train_dataloader)
-    wandb.finish()
+    eval_dataset = AudioDataset(["audio/Ethan--Bes.m4a"])
+    eval_dataloader = DataLoader(eval_dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+    train(model, tokenizer, train_dataloader, eval_dataloader)
     torch.save(model.state_dict(), "fine_tuned_whisper_tiny.pth")
+
+    wandb.finish()
