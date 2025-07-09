@@ -4,43 +4,39 @@ import whisper
 import tempfile
 
 @st.cache_resource(show_spinner=False)
-def load_model():
+def load_models():
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = whisper.load_model("tiny", device=device)
 
-    # Load your fine-tuned weights
-    model.load_state_dict(torch.load("fine_tuned_whisper_tiny.pth", map_location=device))
-    model.to(device)
-    model.eval()
+    # Load default (pretrained) Whisper model
+    default_model = whisper.load_model("tiny", device=device)
+    default_model.to(device)
+    default_model.eval()
+
+    # Load fine-tuned Whisper model
+    fine_tuned_model = whisper.load_model("tiny", device=device)
+    fine_tuned_model.load_state_dict(torch.load("fine_tuned_whisper_tiny.pth", map_location=device))
+    fine_tuned_model.to(device)
+    fine_tuned_model.eval()
 
     tokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
-    return model, tokenizer, device
 
-def transcribe_audio(model, tokenizer, device, audio_path):
+    return default_model, fine_tuned_model, tokenizer, device
+
+def transcribe_audio(model, device, audio_path):
     audio = whisper.load_audio(audio_path)
     audio = whisper.pad_or_trim(audio)
     mel = whisper.log_mel_spectrogram(audio).to(device)
 
-    ids = []
-    ids += [tokenizer.sot]
-    ids += [tokenizer.language_token]
-    ids += [tokenizer.transcribe]
-    ids += [tokenizer.no_timestamps]
-    ids += [tokenizer.eot]
-    tokens = torch.tensor(ids, device=device).unsqueeze(0)
+    # Use Whisper's built-in decoding
+    options = whisper.DecodingOptions(language=None, task="transcribe", without_timestamps=True)
+    result = whisper.decode(model, mel, options)
 
-    with torch.no_grad():
-        prediction = model(tokens=tokens, mel=mel.unsqueeze(0))  # raw model output
-
-    predicted_ids = prediction.argmax(dim=-1)[0].tolist()
-    text = tokenizer.decode(predicted_ids)
-
-    return prediction, text  # returning both
+    return result.text, result.language
 
 def main():
-    st.title("Fine-tuned Whisper Audio Transcription")
+    st.title("Whisper Audio Transcription: Default vs Fine-Tuned")
 
-    st.write("Upload an audio file to transcribe it using your fine-tuned Whisper model.")
+    st.write("Upload an audio file to compare transcriptions between the default and your fine-tuned Whisper model.")
 
     uploaded_file = st.file_uploader("Upload audio", type=["wav", "mp3", "m4a", "flac", "ogg"])
 
@@ -49,18 +45,25 @@ def main():
             tmp_file.write(uploaded_file.read())
             tmp_file_path = tmp_file.name
 
-        model, tokenizer, device = load_model()
+        default_model, fine_tuned_model, tokenizer, device = load_models()
 
         st.audio(uploaded_file, format=uploaded_file.type)
         st.write("Transcribing...")
 
-        raw_output, transcription = transcribe_audio(model, tokenizer, device, tmp_file_path)
+        default_text, default_lang = transcribe_audio(default_model, device, tmp_file_path)
+        tuned_text, tuned_lang = transcribe_audio(fine_tuned_model, device, tmp_file_path)
 
         st.success("Transcription complete!")
-        st.text_area("Transcription", transcription, height=150)
 
-        st.subheader("Raw Whisper Output (tensor)")
-        st.code(str(raw_output), language="python")
+        st.subheader("Detected Language")
+        st.write(f"Default model: `{default_lang}`")
+        st.write(f"Fine-tuned model: `{tuned_lang}`")
+
+        st.subheader("Default Whisper Transcription")
+        st.text_area("Default", default_text, height=150)
+
+        st.subheader("Fine-Tuned Whisper Transcription")
+        st.text_area("Fine-Tuned", tuned_text, height=150)
 
 if __name__ == "__main__":
     main()
