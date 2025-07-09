@@ -62,7 +62,7 @@ def train(model, tokenizer, train_dataloader):
 
             print(f"Loss: {loss.item():.4f}")
             if epoch == EPOCHS - 1 and batch_idx == 0:
-                log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction)
+                log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, B)
             wandb.log({"epoch": epoch + 1, "loss": loss.item(), f"text": text_table})
 
 if __name__ == "__main__":

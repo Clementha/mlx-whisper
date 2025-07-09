@@ -10,7 +10,6 @@ def whisper_without_fine_tuning(model, audio_batch, device):
         outputs.append(response.text)
     return outputs
 
-
 def log_without_fine_tuning(model, audio_batch, wandb_pre_fine_tune_logs):
     print("Whisper predictions (no fine-tuning):")
     predictions_raw = whisper_without_fine_tuning(model, audio_batch, model.device)
@@ -18,8 +17,8 @@ def log_without_fine_tuning(model, audio_batch, wandb_pre_fine_tune_logs):
         wandb_pre_fine_tune_logs.append(text)
         print(f"  Sample {i + 1}: {text}")
 
-def log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction):
-    for i in range(3):
+def log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, batch_num):
+    for i in range(batch_num):
         print(f"Sample {i + 1}:")
         pred_tokens = torch.argmax(prediction[:, :-1, :], dim=-1).contiguous()  # [B, T-1]
         target_text = tokenizer.decode(target[i].tolist())
