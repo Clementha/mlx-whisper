@@ -4,10 +4,10 @@ import wandb
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from utils import get_device, init_wandb
-from train_utils import log_without_fine_tuning, log_predict_targets
+from train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch
 
 FILE_PATH = "audio/Clem--Bes.m4a"
-EPOCHS = 2
+EPOCHS = 5
 LEARNING_RATE = 1e-5
 BATCH_SIZE = 3
 
@@ -61,9 +61,10 @@ def train(model, tokenizer, train_dataloader):
             optimizer.step()
 
             print(f"Loss: {loss.item():.4f}")
+            avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
             if epoch == EPOCHS - 1 and batch_idx == 0:
                 log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, B)
-            wandb.log({"epoch": epoch + 1, "loss": loss.item(), f"text": text_table})
+            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "text": text_table, "avg_batch_accuracy": avg_batch_accuracy})
 
 if __name__ == "__main__":
     init_wandb()
