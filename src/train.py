@@ -1,8 +1,9 @@
 import torch
 import whisper
+import wandb
 from torch.utils.data import Dataset, DataLoader
-from utils import get_device 
 from tqdm import tqdm
+from utils import get_device, init_wandb
 
 FILE_PATH = "audio/Clem--Bes.m4a"
 EPOCHS = 3
@@ -78,14 +79,15 @@ def train(model, tokenizer, train_dataloader):
 
             # Predictions for logging
             pred_tokens = torch.argmax(prediction[:, :-1, :], dim=-1).contiguous()  # [B, T-1]
-
             print(f"Loss: {loss.item():.4f}")
+            wandb.log({"epoch": epoch + 1, "loss": loss.item()})
             for i in range(B):
                 print(f"Sample {i + 1}:")
                 print("  Target text:   ", tokenizer.decode(target[i].tolist()))
                 print("  Predicted text:", tokenizer.decode(pred_tokens[i].tolist()))
 
 if __name__ == "__main__":
+    init_wandb()
     device = get_device()
     model = whisper.load_model("tiny", device=device)
     tokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
@@ -94,3 +96,4 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     train(model, tokenizer, train_dataloader)
+    wandb.finish()
