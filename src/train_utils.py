@@ -1,19 +1,66 @@
 import whisper
 import torch
-from torch.nn.utils.rnn import pad_sequence
+import torch.nn.functional as F
 
-def _whisper_without_fine_tuning(model, audio_batch, device):
+def _whisper_without_fine_tuning(model, audio_batch):
     options = whisper.DecodingOptions()
     outputs = []
     for audio in audio_batch:
-        log_mel = whisper.log_mel_spectrogram(audio).to(device)
+        log_mel = whisper.log_mel_spectrogram(audio).to(model.device)
         response = whisper.decode(model, log_mel, options)
         outputs.append(response.text)
     return outputs
 
+
+# TODO: This doesn't change 
+def compute_avg_accuracy_before_ft(prediction, target, batch_num, tokenizer):
+    all_batch_accuracies = []
+    for i in range(batch_num):
+        pred_tokens = prediction[i]
+        print("pred_tokens: ", pred_tokens)
+        target_tokens = target[i].squeeze(0)
+        print("target_tokens: ", target_tokens)
+        # remove_ids = torch.tensor([tokenizer.sot], device=pred_tokens.device)
+        # mask = ~torch.isin(target_tokens, remove_ids)
+        # target_tokens = target_tokens[mask]
+        # > 50256 to max 50363 
+
+        # Handle padding and mask
+        max_len = max(pred_tokens.shape[0], target_tokens.shape[0])
+        pred_padded = torch.full((max_len,), PAD_TOKEN, dtype=pred_tokens.dtype, device=pred_tokens.device)
+        target_padded = torch.full((max_len,), PAD_TOKEN, dtype=target_tokens.dtype, device=target_tokens.device)
+        pred_padded[:pred_tokens.shape[0]] = pred_tokens
+        target_padded[:target_tokens.shape[0]] = target_tokens
+        mask = target_padded != PAD_TOKEN
+        correct = (pred_padded == target_padded) & mask
+
+        batch_correct = correct.sum().item()
+        batch_total = mask.sum().item()
+
+        batch_accuracy = (batch_correct / batch_total) * 100 if batch_total > 0 else 0.0
+        all_batch_accuracies.append(batch_accuracy)
+
+    average_accuracy = sum(all_batch_accuracies) / len(all_batch_accuracies)
+    return average_accuracy
+
+def average_whisper_accuracy_before_ft(model, audio_batch, target, tokenizer):
+    options = whisper.DecodingOptions()
+    pred_token_ids = []
+    batch_num = len(audio_batch)
+
+    for audio in audio_batch:
+        log_mel = whisper.log_mel_spectrogram(audio).to(model.device)
+        response = whisper.decode(model, log_mel, options)
+        # Convert token list to tensor of token ids
+        tokens = torch.tensor(response.tokens, dtype=target.dtype, device=target.device)
+        pred_token_ids.append(tokens)
+
+    avg_accuracy = compute_avg_accuracy_before_ft(pred_token_ids, target, batch_num, tokenizer)
+    return avg_accuracy
+
 def log_without_fine_tuning(model, audio_batch, wandb_pre_fine_tune_logs):
     print("Whisper predictions (no fine-tuning):")
-    predictions_raw = _whisper_without_fine_tuning(model, audio_batch, model.device)
+    predictions_raw = _whisper_without_fine_tuning(model, audio_batch)
     for i, text in enumerate(predictions_raw):
         wandb_pre_fine_tune_logs.append(text)
         print(f"  Sample {i + 1}: {text}")
@@ -61,5 +108,4 @@ def compute_avg_masked_accuracy_per_batch(prediction, target, batch_num):
         all_batch_accuracies.append(batch_accuracy)
 
     average_accuracy = sum(all_batch_accuracies) / len(all_batch_accuracies)
-    print(f"Average accuracy of the batch: {average_accuracy:.2f}%")
     return average_accuracy

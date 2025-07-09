@@ -4,7 +4,7 @@ import wandb
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from utils import get_device, init_wandb
-from train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch
+from train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch, average_whisper_accuracy_before_ft
 
 FILE_PATH = "audio/Clem--Bes.m4a"
 EPOCHS = 5
@@ -52,7 +52,8 @@ def train(model, tokenizer, train_dataloader):
             B = mel.size(0)
             train_tokens_batch = train_tokens.repeat(B, 1)  # [B, T]
             target = train_tokens_batch[:, 1:].contiguous()  # [B, T-1]
-
+            avg_whisper_accuracy = average_whisper_accuracy_before_ft(model, audio_batch, target, tokenizer)
+            print("average whisper accuracy :", avg_whisper_accuracy)
             prediction = model(tokens=train_tokens_batch, mel=mel)  # [B, T, Vocab]
             loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)    # [B, V, T] vs [B, T]
 
@@ -62,9 +63,11 @@ def train(model, tokenizer, train_dataloader):
 
             print(f"Loss: {loss.item():.4f}")
             avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
+            print(f"Average accuracy after training {avg_batch_accuracy:.2f}%")
+
             if epoch == EPOCHS - 1 and batch_idx == 0:
                 log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, B)
-            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "text": text_table, "avg_batch_accuracy": avg_batch_accuracy})
+            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "text": text_table, "avg_batch_accuracy": avg_batch_accuracy, "accuracy_improvement": avg_batch_accuracy - avg_whisper_accuracy})
 
 if __name__ == "__main__":
     init_wandb()
