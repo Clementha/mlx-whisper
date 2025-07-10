@@ -13,7 +13,7 @@ Use whisper model to process audio to do:
 ## Brainstorming/Architecture
 https://excalidraw.com/#room=74a7e13165b90cd7eadd,S097Zfcno-P6c-HlbWnUPg
 
-![Architecture diagram]("https://github.com/user-attachments/assets/edd48b1f-3768-4633-ba0b-f116f485d001")
+<img width="1046" height="628" alt="Screenshot 2025-07-10 at 17 14 22" src="https://github.com/user-attachments/assets/d1ebdf5e-25e0-4439-a705-fff4f6115916" />
 
 ## Task 1. Template - Hello, my name is Bes
 0. You'll need to populate .env (use .env.example as an example. For this Hello my name is Bes - the entity is audio-party and project is mlx-whisper). Also add a folder called 'audio' and put the three audio clippings inside. 
@@ -29,9 +29,9 @@ See all code with welsh_... prefix
 
 Image of it working!
 
-![Working]("https://github.com/user-attachments/assets/0c0ac5c9-3d8b-4bfb-81ef-8f95e7c4e4b1")
+<img width="1495" height="668" alt="image" src="https://github.com/user-attachments/assets/f190c85c-ef23-4deb-ae72-ae5147176d4d" />
 
 Weights and biases:
-![Weight and biases]("https://github.com/user-attachments/assets/76817ebb-3638-4498-90c1-392268c4b507")
 
+<img width="1324" height="644" alt="Screenshot 2025-07-10 at 17 20 11" src="https://github.com/user-attachments/assets/7bd00ac4-304b-4f56-b532-21a52aeeb1bb" />
 
