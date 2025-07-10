@@ -5,6 +5,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from utils import get_device, init_wandb
 from template_train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch, average_whisper_accuracy_before_ft, gen_token_ids_with_special_tokens
+from torch.nn.utils.rnn import pad_sequence
 
 EPOCHS = 5
 LEARNING_RATE = 1e-5
@@ -14,6 +15,21 @@ def preprocess_audio(file_path):
     audio = whisper.load_audio(file_path)
     audio = whisper.pad_or_trim(audio)
     return whisper.log_mel_spectrogram(audio)
+
+def whisper_collate_fn(batch):
+    mels = [item["mel"] for item in batch]  # Already log-mel spectrogram
+    caption_ids = [item["caption_ids"] for item in batch]  # Already tokenized
+
+    # Stack mel spectrograms
+    mels = torch.stack(mels)
+
+    # Uncomment to pad caption_ids to the max length in the batch with EOT as pad
+    caption_ids = pad_sequence(caption_ids, batch_first=True, padding_value=caption_ids[0][-1].item())
+
+    return {
+        "mel": mels,
+        "caption_ids": caption_ids
+    }
 
 class AudioDataset(Dataset):
     def __init__(self, file_path_list, tokenizer):
@@ -26,8 +42,11 @@ class AudioDataset(Dataset):
     def __getitem__(self, idx):
         file_path = self.file_paths[idx]
         mels = preprocess_audio(file_path)
-        token_ids = gen_token_ids_with_special_tokens(tokenizer, "Hello, my name is Bes.")
-        return (mels, token_ids)
+        caption_ids = gen_token_ids_with_special_tokens(tokenizer, "Hello, my name is Bes.")
+        return {
+            "mel": mels,
+            "caption_ids": caption_ids
+        }
 
 
 def evaluate(model, tokenizer, eval_dataloader, batch_idx, wandb_pre_fine_tune_logs):
@@ -40,11 +59,11 @@ def evaluate(model, tokenizer, eval_dataloader, batch_idx, wandb_pre_fine_tune_l
     eval_text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
 
     with torch.no_grad():
-        for batch_idx, (mel, token_ids) in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
-            audio_batch = mel.to(device)
-            eval_tokens = token_ids.to(device)
+        for batch_idx, batch in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
+            audio_batch = batch["mel"].to(device)
+            eval_tokens = batch["caption_ids"].to(device)
 
-            B = mel.size(0)
+            B = audio_batch.size(0)
             target = eval_tokens[:, 1:].contiguous()  # [B, T-1]
 
             prediction = model(tokens=eval_tokens, mel=audio_batch)  # [B, T, Vocab]
@@ -76,11 +95,11 @@ def train(model, tokenizer, train_dataloader, eval_dataloader):
     for epoch in range(EPOCHS):
         text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
         print(f"\n---- Epoch {epoch + 1}/{EPOCHS} ----")
-        for batch_idx, (mel, token_ids) in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
-            audio_batch = mel.to(device)  # [B, N]
-            train_tokens_batch = token_ids.to(device)
+        for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
+            audio_batch = batch["mel"].to(device)  # [B, N]
+            train_tokens_batch = batch["caption_ids"].to(device)
 
-            B = mel.size(0)
+            B = audio_batch.size(0)
             target = train_tokens_batch[:, 1:].contiguous()  # [B, T-1]
             
             if epoch == 0 and batch_idx == 0:
@@ -110,10 +129,10 @@ if __name__ == "__main__":
     tokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
 
     train_dataset = AudioDataset(["audio/Clem--Bes.m4a", "audio/Helen--Bes.m4a"], tokenizer)
-    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=whisper_collate_fn)
 
     eval_dataset = AudioDataset(["audio/Ethan--Bes.m4a"], tokenizer)
-    eval_dataloader = DataLoader(eval_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    eval_dataloader = DataLoader(eval_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=whisper_collate_fn)
 
     train(model, tokenizer, train_dataloader, eval_dataloader)
     torch.save(model.state_dict(), "fine_tuned_whisper_tiny.pth")
