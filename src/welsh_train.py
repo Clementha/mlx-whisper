@@ -46,20 +46,57 @@ def whisper_collate_fn(batch):
         "caption_ids": caption_ids,
         "sample_id": sample_ids  # Keep sample IDs
     }
-
+exp_sr = 16000  # Whisper expects 16kHz audio
 def preprocess_audio(example):
     audio = example["audio"]["array"]  # NumPy array
     sr = example["audio"]["sampling_rate"]
     if sr != 16000:
         waveform = torch.tensor(audio).unsqueeze(0)  # (1, samples)
-        resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=expected_sr)
+        resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=exp_sr)
         audio = resampler(waveform).squeeze().numpy()
 
     # Pad or trim to 30s as expected by Whisper
     audio = whisper.pad_or_trim(audio)
     return whisper.log_mel_spectrogram(audio)
 
-def train(model, tokenizer, train_dataloader):
+def evaluate(model, tokenizer, eval_dataloader, batch_idx):
+    model.eval()
+    criterion = torch.nn.CrossEntropyLoss()
+    total_loss = 0.0
+    total_accuracy = 0.0
+    total_batches = 0
+    
+    # eval_text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
+
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
+            audio_batch = batch["mel"]
+            eval_tokens = batch["caption_ids"]
+
+            B = audio_batch.size(0)
+            target = eval_tokens[:, 1:].contiguous()  # [B, T-1]
+
+            prediction = model(tokens=eval_tokens, mel=audio_batch)  # [B, T, Vocab]
+
+            # if batch_idx == 0:
+            #     log_predict_targets(eval_text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, 1)
+
+            loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)
+            total_loss += loss.item()
+
+            batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
+            total_accuracy += batch_accuracy
+
+            total_batches += 1
+
+    avg_loss = total_loss / total_batches if total_batches > 0 else 0
+    avg_accuracy = total_accuracy / total_batches if total_batches > 0 else 0
+    print(f"Evaluation - Avg Loss: {avg_loss:.4f}, Avg Accuracy: {avg_accuracy:.4f}")
+
+    return avg_loss, avg_accuracy#, eval_text_table
+
+
+def train(model, tokenizer, train_dataloader, eval_dataloader):
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = torch.nn.CrossEntropyLoss()
@@ -71,9 +108,9 @@ def train(model, tokenizer, train_dataloader):
             B = mels.size(0)
             target = caption_ids[:, 1:].contiguous()  # [B, T-1]
             
-            avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
             
             prediction = model(tokens=caption_ids, mel=mels)  # [B, T, Vocab]
+            avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
             if epoch == 0:
                 for i in range(B):
 
@@ -97,12 +134,14 @@ def train(model, tokenizer, train_dataloader):
                                                         "final_pred_tokens": f"{final_pred_tokens}",
                                                          "target_text": target_text,
                                                          "target_tokens": f"{target_tokens}" }
-                    
+            eval_avg_loss, eval_avg_accuracy = evaluate(model, tokenizer, eval_dataloader, batch_idx)
+            # wandb.log({"epoch": epoch + 1, "loss": loss.item(), "training_text": text_table, "avg_batch_accuracy": avg_batch_accuracy, "avg_whisper_accuracy": avg_whisper_accuracy, "eval_avg_loss": eval_avg_loss, "eval_avg_accuracy": eval_avg_accuracy, "eval_text_table": eval_text_table })
+     
             wandb.log({
-                "epoch": epoch + 1,
-                "batch_idx": batch_idx + 1,
                 "loss": loss.item(),
-                "avg_batch_accuracy": avg_batch_accuracy
+                "avg_batch_accuracy": avg_batch_accuracy,
+                "eval_avg_loss": eval_avg_loss,
+                "eval_avg_accuracy": eval_avg_accuracy
             })
     text_table = wandb.Table(columns=["sample_id", "first_predicted_text", "first_predicted_tokens", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
     for sample_id, data in samples.items():
@@ -130,15 +169,17 @@ if __name__ == "__main__":
     train_dataset = AudioDataset(train_data, tokenizer)
     train_dataloader = DataLoader(
         train_dataset,
-        batch_size=4,
+        batch_size=BATCH_SIZE,
         shuffle=True,
         collate_fn=whisper_collate_fn
     )
 
-    # eval_dataset = AudioDataset(["audio/Ethan--Bes.m4a"])
-    # eval_dataloader = DataLoader(eval_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    eval_data = load_dataset("EthanGLEdwards/welsh-transcription-samples")['validation']
 
-    train(model, tokenizer, train_dataloader)
+    eval_dataset = AudioDataset(eval_data, tokenizer)
+    eval_dataloader = DataLoader(eval_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=whisper_collate_fn)
+
+    train(model, tokenizer, train_dataloader, eval_dataloader)
     torch.save(model.state_dict(), "fine_tuned_welsh_model.pth")
 
     wandb.finish()
