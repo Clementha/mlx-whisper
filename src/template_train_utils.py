@@ -5,8 +5,7 @@ import torch.nn.functional as F
 def _whisper_without_fine_tuning(model, audio_batch):
     options = whisper.DecodingOptions()
     outputs = []
-    for audio in audio_batch:
-        log_mel = whisper.log_mel_spectrogram(audio).to(model.device)
+    for log_mel in audio_batch:
         response = whisper.decode(model, log_mel, options)
         outputs.append(response.text)
     return outputs
@@ -48,8 +47,7 @@ def average_whisper_accuracy_before_ft(model, audio_batch, target, tokenizer):
     pred_token_ids = []
     batch_num = len(audio_batch)
 
-    for audio in audio_batch:
-        log_mel = whisper.log_mel_spectrogram(audio).to(model.device)
+    for log_mel in audio_batch:
         response = whisper.decode(model, log_mel, options)
         # Convert token list to tensor of token ids
         tokens = torch.tensor(response.tokens, dtype=target.dtype, device=target.device)
