@@ -5,7 +5,7 @@ import wandb
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from utils import get_device, init_wandb
-from template_train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch, average_whisper_accuracy_before_ft, gen_token_ids_with_special_tokens
+from welsh_train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch, average_whisper_accuracy_before_ft, gen_token_ids_with_special_tokens
 import torchaudio
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -24,13 +24,14 @@ class AudioDataset(Dataset):
 
     def __getitem__(self, idx):
         caption = self.dataset[idx]['caption']
-        caption_ids = gen_token_ids_with_special_tokens(self.tokenizer, caption)
+        language = self.dataset[idx]['language'] # cy or en
+        caption_ids = gen_token_ids_with_special_tokens(self.tokenizer, language, caption)
         # audio_array = self.dataset[idx]["audio"]["array"]
         # audio_tensor = torch.tensor(audio_array, dtype=torch.float32)
         # Pad or trim to 30s (Whisper expects 30s input at 16kHz)
         # audio_tensor = whisper.pad_or_trim(audio_tensor)
         mel = preprocess_audio(self.dataset[idx])
-        print("train_tokens_batch.shape: ", caption_ids.shape)
+        # print("train_tokens_batch.shape: ", caption_ids.shape)
 
         # return (audio_tensor, caption_ids)
         return {
@@ -83,7 +84,7 @@ def train(model, tokenizer, train_dataloader):
     wandb_pre_fine_tune_logs = []
     for epoch in range(EPOCHS):
         text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
-        print(f"\n---- Epoch {epoch + 1}/{EPOCHS} ----")
+        # print(f"\n---- Epoch {epoch + 1}/{EPOCHS} ----")
         for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
             mels = batch["mel"]#.to(device)  # [B, N]
             caption_ids = batch["caption_ids"]#.to(device)
