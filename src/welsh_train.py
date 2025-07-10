@@ -71,6 +71,8 @@ def train(model, tokenizer, train_dataloader):
             B = mels.size(0)
             target = caption_ids[:, 1:].contiguous()  # [B, T-1]
             
+            avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
+            
             prediction = model(tokens=caption_ids, mel=mels)  # [B, T, Vocab]
             if epoch == 0:
                 for i in range(B):
@@ -87,7 +89,6 @@ def train(model, tokenizer, train_dataloader):
             loss.backward()
             optimizer.step()
 
-            avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
             
             if epoch == EPOCHS - 1:
                 for i in range(B):
@@ -105,6 +106,7 @@ def train(model, tokenizer, train_dataloader):
             })
     text_table = wandb.Table(columns=["sample_id", "first_predicted_text", "first_predicted_tokens", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
     for sample_id, data in samples.items():
+        ## TODO: Could remove non text tokens from the tokens and predictions.
         text_table.add_data(
             sample_id,
             data.get("first_pred_text", ""),
