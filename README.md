@@ -8,7 +8,7 @@ Use whisper model to process audio to do:
 - uv - install via https://github.com/astral-sh/uv
 - wandb log in details and be added to the project - https://wandb.ai/site or in remote terminal 
 - `brew install ffmpeg` (you need this for whisper to work)
-- `.env` - see example
+- `.env` - see example and fill it in. Entity is audio-party and we use mlx-whisper for the template and mlx-whisper-welsh for welsh
 
 ## Brainstorming
 https://excalidraw.com/#room=74a7e13165b90cd7eadd,S097Zfcno-P6c-HlbWnUPg
