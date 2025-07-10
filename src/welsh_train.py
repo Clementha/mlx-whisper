@@ -27,28 +27,18 @@ class AudioDataset(Dataset):
         id = self.dataset[idx]['sample_id']  # e.g. "welsh_001"
         language = self.dataset[idx]['language'] # cy or en
         caption_ids = gen_token_ids_with_special_tokens(self.tokenizer, language, caption)
-        # audio_array = self.dataset[idx]["audio"]["array"]
-        # audio_tensor = torch.tensor(audio_array, dtype=torch.float32)
-        # Pad or trim to 30s (Whisper expects 30s input at 16kHz)
-        # audio_tensor = whisper.pad_or_trim(audio_tensor)
         mel = preprocess_audio(self.dataset[idx])
-        # print("train_tokens_batch.shape: ", caption_ids.shape)
-
-        # return (audio_tensor, caption_ids)
         return {
-        "mel": mel,
-        "caption_ids": caption_ids,
-        "sample_id": id
-    }
+            "mel": mel,
+            "caption_ids": caption_ids,
+            "sample_id": id
+        }
 
 def whisper_collate_fn(batch):
     mels = [item["mel"] for item in batch]  # Already log-mel spectrogram
     caption_ids = [item["caption_ids"] for item in batch]  # Already tokenized
     sample_ids = [item["sample_id"] for item in batch]  # Keep sample IDs
-    # Stack mel spectrograms (B, 80, 3000)
     mels = torch.stack(mels)
-
-    # Pad caption_ids to the max length in the batch (B, max_len)
     caption_ids = pad_sequence(caption_ids, batch_first=True, padding_value=caption_ids[0][-1].item())  # Use EOT as pad
 
     return {
@@ -57,27 +47,17 @@ def whisper_collate_fn(batch):
         "sample_id": sample_ids  # Keep sample IDs
     }
 
-# Whisper expects 16kHz mono audio
-expected_sr = 16000
-
-# Extract the raw audio and resample if necessary
 def preprocess_audio(example):
     audio = example["audio"]["array"]  # NumPy array
     sr = example["audio"]["sampling_rate"]
-
-    # Resample if not 16kHz
-    if sr != expected_sr:
-
+    if sr != 16000:
         waveform = torch.tensor(audio).unsqueeze(0)  # (1, samples)
         resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=expected_sr)
         audio = resampler(waveform).squeeze().numpy()
 
     # Pad or trim to 30s as expected by Whisper
     audio = whisper.pad_or_trim(audio)
-
-    mel = whisper.log_mel_spectrogram(audio)
-
-    return mel
+    return whisper.log_mel_spectrogram(audio)
 
 def train(model, tokenizer, train_dataloader):
     model.train()
@@ -85,13 +65,9 @@ def train(model, tokenizer, train_dataloader):
     criterion = torch.nn.CrossEntropyLoss()
     samples = {}
     for epoch in range(EPOCHS):
-        # print(f"\n---- Epoch {epoch + 1}/{EPOCHS} ----")
         for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
             mels = batch["mel"]#.to(device)  # [B, N]
             caption_ids = batch["caption_ids"]#.to(device)
-
-            # mel = whisper.log_mel_spectrogram(audio_batch)#.to(device)  # [B, 80, T]
-
             B = mels.size(0)
             target = caption_ids[:, 1:].contiguous()  # [B, T-1]
             
@@ -138,14 +114,6 @@ def train(model, tokenizer, train_dataloader):
             data.get("final_pred_tokens", ""),
             data.get("target_tokens", "")
         )
-    
-    # text_table.add_data(
-    #     "First Prediction",
-    #     first_pred_text,
-    #     "Target",
-    #     "First Predicted Tokens",
-    #     "Target Tokens"
-    # )
 
     wandb.log({"training_text": text_table})
 
@@ -159,12 +127,11 @@ if __name__ == "__main__":
     train_data = load_dataset("EthanGLEdwards/welsh-transcription-samples")['train']
     train_dataset = AudioDataset(train_data, tokenizer)
     train_dataloader = DataLoader(
-    train_dataset,
-    batch_size=4,
-    shuffle=True,
-    collate_fn=whisper_collate_fn
-)
-    # train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+        train_dataset,
+        batch_size=4,
+        shuffle=True,
+        collate_fn=whisper_collate_fn
+    )
 
     # eval_dataset = AudioDataset(["audio/Ethan--Bes.m4a"])
     # eval_dataloader = DataLoader(eval_dataset, batch_size=BATCH_SIZE, shuffle=False)

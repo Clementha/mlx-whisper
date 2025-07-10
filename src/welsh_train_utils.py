@@ -4,15 +4,12 @@ import torch.nn.functional as F
 
 
 def log_predict_targets(tokenizer, target, prediction):
-    # print(f"Sample {i + 1}:")
     pred_tokens = torch.argmax(prediction[:-1, :], dim=-1).contiguous()  # [B, T-1]
     target_text = tokenizer.decode(target.tolist())
     predicted_text = tokenizer.decode(pred_tokens.tolist())
     target_tokens = target.squeeze().tolist()
     prediction_tokens = torch.argmax(prediction, dim=-1).squeeze().tolist()
     return predicted_text, target_text, prediction_tokens, target_tokens
-    # print("  Target text:   ", target_text)
-    # print("  Predicted text:", predicted_text)
 
 
 PAD_TOKEN = 0
@@ -50,7 +47,6 @@ def gen_token_ids_with_special_tokens(tokenizer, language, text):
         ids += [tokenizer.language_token]
     else:
         raise ValueError(f"Unsupported language: {language}")
-    # ids += [tokenizer.language_token]
     ids += [tokenizer.transcribe]
     ids += [tokenizer.no_timestamps]
     ids += tokenizer.encode(f" {text}")
