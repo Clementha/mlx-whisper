@@ -216,4 +216,6 @@ __marimo__/
 
 # audio files
 *.m4a
+*.mp3
+*.wav
 my_welsh_dataset

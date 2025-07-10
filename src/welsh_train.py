@@ -10,7 +10,7 @@ import torchaudio
 import torch
 from torch.nn.utils.rnn import pad_sequence
 
-EPOCHS = 5
+EPOCHS = 20
 LEARNING_RATE = 1e-5
 BATCH_SIZE = 3
 
@@ -70,7 +70,7 @@ def preprocess_audio(example):
 
 def evaluate(model, tokenizer, eval_dataloader, device):
     model.eval()
-    criterion = torch.nn.CrossEntropyLoss()
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.1)  # Use label smoothing for better generalization
     total_loss = 0.0
     total_accuracy = 0.0
     total_batches = 0
@@ -123,6 +123,7 @@ def evaluate(model, tokenizer, eval_dataloader, device):
 def train(model, tokenizer, train_dataloader, eval_dataloader, device):
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.1)
     criterion = torch.nn.CrossEntropyLoss()
     samples = {}
 
@@ -183,7 +184,7 @@ def train(model, tokenizer, train_dataloader, eval_dataloader, device):
             "eval_loss": eval_avg_loss,
             "eval_accuracy": eval_avg_accuracy
         })
-
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
         print(f"Train Loss: {avg_train_loss:.4f} | Train Acc: {avg_train_accuracy:.4f}")
         print(f"Eval  Loss: {eval_avg_loss:.4f} | Eval  Acc: {eval_avg_accuracy:.4f}")
 
