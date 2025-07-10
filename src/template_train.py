@@ -10,6 +10,11 @@ EPOCHS = 5
 LEARNING_RATE = 1e-5
 BATCH_SIZE = 3
 
+def preprocess_audio(file_path):
+    audio = whisper.load_audio(file_path)
+    audio = whisper.pad_or_trim(audio)
+    return whisper.log_mel_spectrogram(audio)
+
 class AudioDataset(Dataset):
     def __init__(self, file_path_list, tokenizer):
         self.file_paths = file_path_list
@@ -20,10 +25,9 @@ class AudioDataset(Dataset):
 
     def __getitem__(self, idx):
         file_path = self.file_paths[idx]
-        audio = whisper.load_audio(file_path)
-        audio = whisper.pad_or_trim(audio)
+        mels = preprocess_audio(file_path)
         token_ids = gen_token_ids_with_special_tokens(tokenizer, "Hello, my name is Bes.")
-        return (audio, token_ids)
+        return (mels, token_ids)
 
 
 def evaluate(model, tokenizer, eval_dataloader, batch_idx, wandb_pre_fine_tune_logs):
@@ -36,16 +40,14 @@ def evaluate(model, tokenizer, eval_dataloader, batch_idx, wandb_pre_fine_tune_l
     eval_text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
 
     with torch.no_grad():
-        for batch_idx, (audio, token_ids) in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
-            audio_batch = audio.to(device)
+        for batch_idx, (mel, token_ids) in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
+            audio_batch = mel.to(device)
             eval_tokens = token_ids.to(device)
-
-            mel = whisper.log_mel_spectrogram(audio_batch).to(device)  # [B, 80, T]
 
             B = mel.size(0)
             target = eval_tokens[:, 1:].contiguous()  # [B, T-1]
 
-            prediction = model(tokens=eval_tokens, mel=mel)  # [B, T, Vocab]
+            prediction = model(tokens=eval_tokens, mel=audio_batch)  # [B, T, Vocab]
 
             if batch_idx == 0:
                 log_predict_targets(eval_text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, 1)
@@ -74,19 +76,18 @@ def train(model, tokenizer, train_dataloader, eval_dataloader):
     for epoch in range(EPOCHS):
         text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
         print(f"\n---- Epoch {epoch + 1}/{EPOCHS} ----")
-        for batch_idx, (audio, token_ids) in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
-            audio_batch = audio.to(device)  # [B, N]
-            mel = whisper.log_mel_spectrogram(audio_batch).to(device)  # [B, 80, T]
+        for batch_idx, (mel, token_ids) in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
+            audio_batch = mel.to(device)  # [B, N]
+            train_tokens_batch = token_ids.to(device)
 
             B = mel.size(0)
-            train_tokens_batch = token_ids.to(device)
             target = train_tokens_batch[:, 1:].contiguous()  # [B, T-1]
             
             if epoch == 0 and batch_idx == 0:
                 log_without_fine_tuning(model, audio_batch, wandb_pre_fine_tune_logs)
                 avg_whisper_accuracy = average_whisper_accuracy_before_ft(model, audio_batch, target, tokenizer)
             
-            prediction = model(tokens=train_tokens_batch, mel=mel)  # [B, T, Vocab]
+            prediction = model(tokens=train_tokens_batch, mel=audio_batch)  # [B, T, Vocab]
             loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)    # [B, V, T] vs [B, T]
 
             optimizer.zero_grad()
