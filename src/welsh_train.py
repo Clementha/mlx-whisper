@@ -66,20 +66,19 @@ def evaluate(model, tokenizer, eval_dataloader, batch_idx):
     total_accuracy = 0.0
     total_batches = 0
     
-    # eval_text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
+    # Collect predictions and targets for wandb table
+    val_samples = {}
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(eval_dataloader, desc="Evaluating")):
             audio_batch = batch["mel"]
             eval_tokens = batch["caption_ids"]
+            sample_ids = batch["sample_id"] if "sample_id" in batch else [str(i) for i in range(audio_batch.size(0))]
 
             B = audio_batch.size(0)
             target = eval_tokens[:, 1:].contiguous()  # [B, T-1]
 
             prediction = model(tokens=eval_tokens, mel=audio_batch)  # [B, T, Vocab]
-
-            # if batch_idx == 0:
-            #     log_predict_targets(eval_text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, 1)
 
             loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)
             total_loss += loss.item()
@@ -89,11 +88,33 @@ def evaluate(model, tokenizer, eval_dataloader, batch_idx):
 
             total_batches += 1
 
+            # Collect predictions and targets for wandb table
+            for i in range(B):
+                pred_text, target_text, pred_tokens, target_tokens = log_predict_targets(tokenizer, target[i], prediction[i])
+                val_samples[sample_ids[i]] = {
+                    "pred_text": pred_text,
+                    "pred_tokens": f"{pred_tokens}",
+                    "target_text": target_text,
+                    "target_tokens": f"{target_tokens}"
+                }
+
     avg_loss = total_loss / total_batches if total_batches > 0 else 0
     avg_accuracy = total_accuracy / total_batches if total_batches > 0 else 0
     print(f"Evaluation - Avg Loss: {avg_loss:.4f}, Avg Accuracy: {avg_accuracy:.4f}")
 
-    return avg_loss, avg_accuracy#, eval_text_table
+    # Log validation_text table to wandb
+    validation_table = wandb.Table(columns=["sample_id", "predicted_text", "predicted_tokens", "target", "target_tokens"])
+    for sample_id, data in val_samples.items():
+        validation_table.add_data(
+            sample_id,
+            data.get("pred_text", ""),
+            data.get("pred_tokens", ""),
+            data.get("target_text", ""),
+            data.get("target_tokens", "")
+        )
+    wandb.log({"validation_text": validation_table})
+
+    return avg_loss, avg_accuracy
 
 
 def train(model, tokenizer, train_dataloader, eval_dataloader):
