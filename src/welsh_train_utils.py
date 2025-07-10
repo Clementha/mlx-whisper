@@ -5,15 +5,15 @@ import torch.nn.functional as F
 def _whisper_without_fine_tuning(model, audio_batch):
     options = whisper.DecodingOptions()
     outputs = []
-    for audio in audio_batch:
-        log_mel = whisper.log_mel_spectrogram(audio).to(model.device)
+    for log_mel in audio_batch:
+        # log_mel = whisper.log_mel_spectrogram(audio).to(model.device)
         response = whisper.decode(model, log_mel, options)
         outputs.append(response.text)
     return outputs
 
 def _filter_out_special_tokens(tokens):
-    remove_ids = torch.arange(50257, 50363, device=tokens.device)
-    mask = ~torch.isin(tokens, remove_ids)
+    # remove_ids = torch.arange(50257, 50363, device=tokens.device)
+    # mask = ~torch.isin(tokens, remove_ids)
     mask = tokens <= 50257  # Keep only tokens with ID ≤ 50257
     return tokens[mask]
 
@@ -48,11 +48,11 @@ def average_whisper_accuracy_before_ft(model, audio_batch, target, tokenizer):
     pred_token_ids = []
     batch_num = len(audio_batch)
 
-    for audio in audio_batch:
-        log_mel = whisper.log_mel_spectrogram(audio).to(model.device)
+    for log_mel in audio_batch:
+        # log_mel = whisper.log_mel_spectrogram(audio).to(model.device)
         response = whisper.decode(model, log_mel, options)
         # Convert token list to tensor of token ids
-        tokens = torch.tensor(response.tokens, dtype=target.dtype, device=target.device)
+        tokens = torch.tensor(response.tokens, dtype=target.dtype)#, device=target.device)
         pred_token_ids.append(tokens)
 
     avg_accuracy = compute_avg_accuracy_before_ft(pred_token_ids, target, batch_num, tokenizer)
