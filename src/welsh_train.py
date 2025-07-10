@@ -4,9 +4,10 @@ import whisper
 import wandb
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from utils import get_device, init_wandb
+from utils import get_device, init_wandb, save_artifact
 from welsh_train_utils import log_predict_targets, compute_avg_masked_accuracy_per_batch, gen_token_ids_with_special_tokens
 import torchaudio
+import os
 import torch
 from torch.nn.utils.rnn import pad_sequence
 
@@ -236,6 +237,9 @@ if __name__ == "__main__":
     )
 
     train(model, tokenizer, train_dataloader, eval_dataloader, device)
-    torch.save(model.state_dict(), "fine_tuned_welsh_model.pth")
+    os.makedirs("data", exist_ok=True)
+    MODEL_FILE_NAME = "fine_tuned_welsh_model"
+    torch.save(model.state_dict(), f"data/{MODEL_FILE_NAME}.pth")
+    save_artifact(MODEL_FILE_NAME, "Tiny whisper model trained on welsh", "pth")
 
     wandb.finish()

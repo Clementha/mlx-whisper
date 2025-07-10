@@ -2,10 +2,15 @@ import streamlit as st
 import torch
 import whisper
 import tempfile
+from utils import get_device, load_artifact_path, init_wandb
+
+MODEL_VERSION = "v0"
 
 @st.cache_resource(show_spinner=False)
 def load_models():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    init_wandb()
+    device = get_device()
+    model_file_path = load_artifact_path("fine_tuned_welsh_model", MODEL_VERSION, "pth")
 
     # Load default (pretrained) Whisper model
     default_model = whisper.load_model("tiny", device=device)
@@ -14,7 +19,7 @@ def load_models():
 
     # Load fine-tuned Whisper model
     fine_tuned_model = whisper.load_model("tiny", device=device)
-    fine_tuned_model.load_state_dict(torch.load("fine_tuned_welsh_model.pth", map_location=device))
+    fine_tuned_model.load_state_dict(torch.load(model_file_path, map_location=device))
     fine_tuned_model.to(device)
     fine_tuned_model.eval()
 
