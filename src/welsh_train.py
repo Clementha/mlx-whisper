@@ -93,9 +93,9 @@ def train(model, tokenizer, train_dataloader):
             B = mels.size(0)
             target = caption_ids[:, 1:].contiguous()  # [B, T-1]
             
-            # if epoch == 0 and batch_idx == 0:
-            #     log_without_fine_tuning(model, mels, wandb_pre_fine_tune_logs)
-            #     avg_whisper_accuracy = average_whisper_accuracy_before_ft(model, mels, target, tokenizer)
+            if epoch == 0 and batch_idx == 0:
+                log_without_fine_tuning(model, mels, wandb_pre_fine_tune_logs)
+                avg_whisper_accuracy = average_whisper_accuracy_before_ft(model, mels, target, tokenizer)
             
             prediction = model(tokens=caption_ids, mel=mels)  # [B, T, Vocab]
             loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)    # [B, V, T] vs [B, T]
@@ -104,16 +104,16 @@ def train(model, tokenizer, train_dataloader):
             loss.backward()
             optimizer.step()
 
-            # avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
+            avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
             
-            # if epoch == EPOCHS - 1 and batch_idx == 0:
-            #     log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, B)
+            if epoch == EPOCHS - 1 and batch_idx == 0:
+                log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, B)
             
-            # wandb.log({"epoch": epoch + 1, "loss": loss.item(), "training_text": text_table, "avg_batch_accuracy": avg_batch_accuracy, "avg_whisper_accuracy": avg_whisper_accuracy })
+            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "training_text": text_table, "avg_batch_accuracy": avg_batch_accuracy})#, "avg_whisper_accuracy": avg_whisper_accuracy })
 
 
 if __name__ == "__main__":
-    # init_wandb()
+    init_wandb()
     # device = get_device()
     model = whisper.load_model("tiny")#, device=device)
     tokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
@@ -134,4 +134,4 @@ if __name__ == "__main__":
     train(model, tokenizer, train_dataloader)
     torch.save(model.state_dict(), "fine_tuned_welsh_model.pth")
 
-    # wandb.finish()
+    wandb.finish()
