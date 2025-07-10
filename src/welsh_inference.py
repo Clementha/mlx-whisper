@@ -2,6 +2,7 @@ import streamlit as st
 import torch
 import whisper
 import tempfile
+from translate import Translator
 from utils import get_device, load_artifact_path, init_wandb
 
 MODEL_VERSION = "v0"
@@ -38,8 +39,29 @@ def transcribe_audio(model, device, audio_path):
 
     return result.text, result.language
 
+def translate_to_welsh(text):
+    translator = Translator(to_lang="cy")
+    try:
+        return translator.translate(text)
+    except Exception as e:
+        return f"Translation error: {e}"
+
 def main():
-    st.title("Whisper Audio Transcription: Default vs Fine-Tuned")
+    st.title("Whisper Audio Transcription: Default tiny whisper vs fine-tuned")
+
+    st.subheader("Translate English to Welsh")
+
+    english_input = st.text_area("Enter English Text", height=100)
+
+    if st.button("Translate to Welsh"):
+        if english_input.strip():
+            welsh_translation = translate_to_welsh(english_input.strip())
+            st.success("Welsh Translation:")
+            st.text_area("Welsh", welsh_translation, height=100)
+        else:
+            st.warning("Please enter some English text.")
+
+    st.markdown("---")
 
     st.write("Upload an audio file to compare transcriptions between the default and your fine-tuned Whisper model.")
 

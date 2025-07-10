@@ -212,6 +212,7 @@ if __name__ == "__main__":
     tokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
 
    # train_data = load_dataset("EthanGLEdwards/welsh-transcription-samples")['train']
+   # To select specfic range do .select(range(100))     
     train_data = load_dataset("ClemSummer/welsh-transcription-samples-7k")['train']
     
     train_dataset = AudioDataset(train_data, tokenizer)
