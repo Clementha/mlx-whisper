@@ -5,7 +5,7 @@ import wandb
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from utils import get_device, init_wandb
-from welsh_train_utils import log_without_fine_tuning, log_predict_targets, compute_avg_masked_accuracy_per_batch, average_whisper_accuracy_before_ft, gen_token_ids_with_special_tokens
+from welsh_train_utils import log_predict_targets, compute_avg_masked_accuracy_per_batch, gen_token_ids_with_special_tokens
 import torchaudio
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -24,6 +24,7 @@ class AudioDataset(Dataset):
 
     def __getitem__(self, idx):
         caption = self.dataset[idx]['caption']
+        id = self.dataset[idx]['sample_id']  # e.g. "welsh_001"
         language = self.dataset[idx]['language'] # cy or en
         caption_ids = gen_token_ids_with_special_tokens(self.tokenizer, language, caption)
         # audio_array = self.dataset[idx]["audio"]["array"]
@@ -36,13 +37,14 @@ class AudioDataset(Dataset):
         # return (audio_tensor, caption_ids)
         return {
         "mel": mel,
-        "caption_ids": caption_ids
+        "caption_ids": caption_ids,
+        "sample_id": id
     }
 
 def whisper_collate_fn(batch):
     mels = [item["mel"] for item in batch]  # Already log-mel spectrogram
     caption_ids = [item["caption_ids"] for item in batch]  # Already tokenized
-
+    sample_ids = [item["sample_id"] for item in batch]  # Keep sample IDs
     # Stack mel spectrograms (B, 80, 3000)
     mels = torch.stack(mels)
 
@@ -51,7 +53,8 @@ def whisper_collate_fn(batch):
 
     return {
         "mel": mels,
-        "caption_ids": caption_ids
+        "caption_ids": caption_ids,
+        "sample_id": sample_ids  # Keep sample IDs
     }
 
 # Whisper expects 16kHz mono audio
@@ -80,10 +83,8 @@ def train(model, tokenizer, train_dataloader):
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = torch.nn.CrossEntropyLoss()
-
-    wandb_pre_fine_tune_logs = []
+    samples = {}
     for epoch in range(EPOCHS):
-        text_table = wandb.Table(columns=["sample_num", "pre_fine_tuning", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
         # print(f"\n---- Epoch {epoch + 1}/{EPOCHS} ----")
         for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}")):
             mels = batch["mel"]#.to(device)  # [B, N]
@@ -94,11 +95,16 @@ def train(model, tokenizer, train_dataloader):
             B = mels.size(0)
             target = caption_ids[:, 1:].contiguous()  # [B, T-1]
             
-            if epoch == 0 and batch_idx == 0:
-                log_without_fine_tuning(model, mels, wandb_pre_fine_tune_logs)
-                avg_whisper_accuracy = average_whisper_accuracy_before_ft(model, mels, target, tokenizer)
-            
             prediction = model(tokens=caption_ids, mel=mels)  # [B, T, Vocab]
+            if epoch == 0:
+                for i in range(B):
+
+                    first_pred_text, _, first_pred_tokens, _ = log_predict_targets(tokenizer, target[i], prediction[i])
+
+                    samples[batch["sample_id"][i]] = { "first_pred_text": first_pred_text,
+                                                        "first_pred_tokens": f"{first_pred_tokens}" }
+    
+
             loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)    # [B, V, T] vs [B, T]
 
             optimizer.zero_grad()
@@ -107,10 +113,41 @@ def train(model, tokenizer, train_dataloader):
 
             avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
             
-            if epoch == EPOCHS - 1 and batch_idx == 0:
-                log_predict_targets(text_table, tokenizer, wandb_pre_fine_tune_logs, target, prediction, B)
-            
-            wandb.log({"epoch": epoch + 1, "loss": loss.item(), "training_text": text_table, "avg_batch_accuracy": avg_batch_accuracy})#, "avg_whisper_accuracy": avg_whisper_accuracy })
+            if epoch == EPOCHS - 1:
+                for i in range(B):
+                    final_pred_text, target_text, final_pred_tokens, target_tokens = log_predict_targets(tokenizer, target[i], prediction[i])
+                    samples[batch["sample_id"][i]] = {**samples[batch["sample_id"][i]], "final_pred_text": final_pred_text,
+                                                        "final_pred_tokens": f"{final_pred_tokens}",
+                                                         "target_text": target_text,
+                                                         "target_tokens": f"{target_tokens}" }
+                    
+            wandb.log({
+                "epoch": epoch + 1,
+                "batch_idx": batch_idx + 1,
+                "loss": loss.item(),
+                "avg_batch_accuracy": avg_batch_accuracy
+            })
+    text_table = wandb.Table(columns=["sample_id", "first_predicted_text", "first_predicted_tokens", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
+    for sample_id, data in samples.items():
+        text_table.add_data(
+            sample_id,
+            data.get("first_pred_text", ""),
+            data.get("first_pred_tokens", ""),
+            data.get("final_pred_text", ""),
+            data.get("target_text", ""),
+            data.get("final_pred_tokens", ""),
+            data.get("target_tokens", "")
+        )
+    
+    # text_table.add_data(
+    #     "First Prediction",
+    #     first_pred_text,
+    #     "Target",
+    #     "First Predicted Tokens",
+    #     "Target Tokens"
+    # )
+
+    wandb.log({"training_text": text_table})
 
 
 if __name__ == "__main__":
