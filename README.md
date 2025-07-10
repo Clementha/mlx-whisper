@@ -12,6 +12,7 @@ Use whisper model to process audio to do:
 
 ## Brainstorming/Architecture
 https://excalidraw.com/#room=74a7e13165b90cd7eadd,S097Zfcno-P6c-HlbWnUPg
+
 ![Architecture diagram]("https://github.com/user-attachments/assets/edd48b1f-3768-4633-ba0b-f116f485d001")
 
 ## Task 1. Template - Hello, my name is Bes
@@ -27,7 +28,8 @@ See all code with welsh_... prefix
 3. To run inference: `uv run streamlit run src/welsh_inference.py`
 
 Image of it working!
-[Working](!"https://github.com/user-attachments/assets/0c0ac5c9-3d8b-4bfb-81ef-8f95e7c4e4b1")
+
+![Working]("https://github.com/user-attachments/assets/0c0ac5c9-3d8b-4bfb-81ef-8f95e7c4e4b1")
 
 Weights and biases:
 ![Weight and biases]("https://github.com/user-attachments/assets/76817ebb-3638-4498-90c1-392268c4b507")
