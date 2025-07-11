@@ -48,19 +48,16 @@ def transcribe_audio(model, device, audio_path):
     return result.text, result.language
 
 def main():
-    st.title("Whisper Audio Transcription: Default tiny whisper vs fine-tuned")
+    st.title("Whisper Audio Transcription: Default vs Fine-Tuned")
 
     audio_value = st.audio_input("Record a voice message")
-    uploaded_file = st.file_uploader("Upload audio", type=["wav", "mp3", "m4a", "flac", "ogg"])
 
-    audio_input = audio_value or uploaded_file
-
-    if audio_input:
-        st.audio(audio_input, format=audio_input.type)
-        st.write("Processing uploaded audio...")
+    if audio_value:
+        st.audio(audio_value, format=audio_value.type)
+        st.write("Processing your recorded audio...")
 
         try:
-            file_path = save_uploaded_file(audio_input)
+            file_path = save_uploaded_file(audio_value)
 
             with st.spinner("Loading models, please wait..."):
                 default_model, fine_tuned_model, tokenizer, device = load_models()
@@ -69,7 +66,6 @@ def main():
             default_text, default_lang = transcribe_audio(default_model, device, file_path)
             tuned_text, tuned_lang = transcribe_audio(fine_tuned_model, device, file_path)
 
-            # Optional cleanup
             os.remove(file_path)
 
             st.success("Transcription complete!")
