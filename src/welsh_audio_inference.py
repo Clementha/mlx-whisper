@@ -49,7 +49,8 @@ def main():
             tmp_file.write(uploaded_file.read())
             tmp_file_path = tmp_file.name
 
-        default_model, fine_tuned_model, tokenizer, device = load_models()
+        with st.spinner("Loading models, please wait..."):
+            default_model, fine_tuned_model, tokenizer, device = load_models()
 
         st.audio(uploaded_file, format=uploaded_file.type)
         st.write("Transcribing...")
