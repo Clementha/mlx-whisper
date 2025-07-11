@@ -4,8 +4,8 @@ import whisper
 import tempfile
 import mimetypes
 import os
-
 from utils import get_device, load_artifact_path, init_wandb
+from translate import Translator
 
 MODEL_VERSION = "v0"
 
@@ -47,7 +47,27 @@ def transcribe_audio(model, device, audio_path):
 
     return result.text, result.language
 
+def translate_to_welsh(text):
+    translator = Translator(to_lang="cy")
+    try:
+        return translator.translate(text)
+    except Exception as e:
+        return f"Translation error: {e}"
+
 def main():
+    # Expandable English-to-Welsh translation at top
+    with st.expander("English to Welsh Translation for inspiration if needed"):
+        english_input = st.text_area("Enter English Text", height=100, key="translation_input")
+
+        if st.button("Translate to Welsh", key="translate_btn"):
+            if english_input.strip():
+                welsh_translation = translate_to_welsh(english_input.strip())
+                st.success("Welsh Translation:")
+                st.text_area("Welsh", welsh_translation, height=100, key="translation_output")
+            else:
+                st.warning("Please enter some English text.")
+
+    # Whisper transcription with audio recording input
     st.title("Whisper Audio Transcription: Default vs Fine-Tuned")
 
     audio_value = st.audio_input("Record a voice message")
