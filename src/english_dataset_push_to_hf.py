@@ -2,10 +2,13 @@ from datasets import load_dataset, Dataset, DatasetDict, Audio
 from huggingface_hub import HfApi
 import os
 
+# Take first 500 with islice
+from itertools import islice
+
 # ---------------------------
 # CONFIG
 # ---------------------------
-LANGUAGE = "cy"
+LANGUAGE = "en"
 SPEAKER = "Mozilla"
 REPO_ID = "ClemSummer/english-transcription-samples"  # change to your username/repo name!
 
@@ -16,9 +19,13 @@ cv = load_dataset(
     "mozilla-foundation/common_voice_13_0",
     LANGUAGE,
     split="train",
+    streaming=True,
     trust_remote_code=True
 )
-print(f"Loaded {len(cv)} rows.")
+
+cv_small = list(islice(cv, 500))
+cv_small = Dataset.from_list(cv_small)
+print(f"Loaded {len(cv_small)} rows.")
 
 # ---------------------------
 # 2. Map to new columns
@@ -35,7 +42,7 @@ def map_fn(example, idx):
 # Use .map() with batched=False and with_indices=True
 
 
-cv_mapped = cv.map(
+cv_mapped = cv_small.map(
     map_fn,
     with_indices=True,
     remove_columns=cv.column_names
