@@ -1,19 +1,110 @@
-from datasets import load_dataset
 import torch
-import whisper
 import wandb
-from torch.utils.data import Dataset, DataLoader
+from datasets import load_dataset
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-from utils import get_device, init_wandb, save_artifact
-from welsh_train_utils import log_predict_targets, compute_avg_masked_accuracy_per_batch, gen_token_ids_with_special_tokens
+import whisper
 import torchaudio
-import os
-import torch
 from torch.nn.utils.rnn import pad_sequence
+from welsh_train_utils import (
+    get_device, compute_avg_masked_accuracy_per_batch,
+    log_predict_targets, gen_token_ids_with_special_tokens
+)
 
-EPOCHS = 20
-LEARNING_RATE = 1e-5
+# ------------------------------------------
+# YOUR CONFIG
+# ------------------------------------------
+DEFAULT_EPOCHS = 5
+DEFAULT_LR = 1e-5
 BATCH_SIZE = 3
+DEFAULT_DATASET_SIZE = 6240  # ✅ Max train rows available
+
+# ------------------------------------------
+# TRAINING LOOP
+# ------------------------------------------
+def train(model, tokenizer, train_dataloader, eval_dataloader, device, epochs, lr):
+    model.train()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.1)
+
+    for epoch in range(epochs):
+        running_loss = 0.0
+        running_acc = 0.0
+        total_batches = 0
+
+        for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch+1}")):
+            mels = batch["mel"].to(device)
+            caption_ids = batch["caption_ids"].to(device)
+            target = caption_ids[:, 1:]
+
+            prediction = model(tokens=caption_ids, mel=mels)
+            loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            avg_acc = compute_avg_masked_accuracy_per_batch(prediction, target, mels.size(0))
+            running_loss += loss.item()
+            running_acc += avg_acc
+            total_batches += 1
+
+        scheduler.step()
+
+        avg_loss = running_loss / total_batches
+        avg_acc = running_acc / total_batches
+        final_train_acc = avg_acc  # ✅ Save last epoch's avg acc
+
+        wandb.log({
+            "train_loss": avg_loss,
+            "train_accuracy": avg_acc,
+            "lr": scheduler.get_last_lr()[0],
+            "epoch": epoch + 1
+        })
+
+        print(f"Epoch {epoch+1} | Train Loss: {avg_loss:.4f} | Train Acc: {avg_acc:.4f}")
+
+        # ✅ Log final training accuracy ONCE
+        wandb.log({"final_train_accuracy": final_train_acc})
+        print(f"FINAL Train Acc: {final_train_acc:.4f}")
+
+        # ✅ Final eval ONCE
+        final_eval_loss, final_eval_acc = evaluate(model, tokenizer, eval_dataloader, device)
+        wandb.log({
+            "final_eval_accuracy": final_eval_acc,
+            "final_eval_loss": final_eval_loss
+        })
+        print(f"FINAL Eval Acc: {final_eval_acc:.4f}")
+
+# ------------------------------------------
+# EVALUATE
+# ------------------------------------------
+def evaluate(model, tokenizer, eval_dataloader, device):
+    model.eval()
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.1)
+    total_loss = 0.0
+    total_acc = 0.0
+    total_batches = 0
+
+    with torch.no_grad():
+        for batch in tqdm(eval_dataloader, desc="Evaluating"):
+            mels = batch["mel"].to(device)
+            caption_ids = batch["caption_ids"].to(device)
+            target = caption_ids[:, 1:]
+
+            prediction = model(tokens=caption_ids, mel=mels)
+            loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)
+            acc = compute_avg_masked_accuracy_per_batch(prediction, target, mels.size(0))
+
+            total_loss += loss.item()
+            total_acc += acc
+            total_batches += 1
+
+    avg_loss = total_loss / total_batches if total_batches > 0 else 0
+    avg_acc = total_acc / total_batches if total_batches > 0 else 0
+
+    return avg_loss, avg_acc
 
 class AudioDataset(Dataset):
     def __init__(self, dataset, tokenizer):
@@ -69,178 +160,70 @@ def preprocess_audio(example):
     audio = whisper.pad_or_trim(audio)
     return whisper.log_mel_spectrogram(audio)
 
-def evaluate(model, tokenizer, eval_dataloader, device):
-    model.eval()
-    criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.1)  # Use label smoothing for better generalization
-    total_loss = 0.0
-    total_accuracy = 0.0
-    total_batches = 0
 
-    val_samples = {}
-
-    with torch.no_grad():
-        for batch in tqdm(eval_dataloader, desc="Evaluating"):
-            audio_batch = batch["mel"].to(device)
-            eval_tokens = batch["caption_ids"].to(device)
-            sample_ids = batch["sample_id"]
-
-            B = audio_batch.size(0)
-            target = eval_tokens[:, 1:].contiguous()
-
-            prediction = model(tokens=eval_tokens, mel=audio_batch)
-
-            loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)
-            total_loss += loss.item()
-
-            batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
-            total_accuracy += batch_accuracy
-            total_batches += 1
-
-            for i in range(B):
-                pred_text, target_text, pred_tokens, target_tokens = log_predict_targets(tokenizer, target[i], prediction[i])
-                val_samples[sample_ids[i]] = {
-                    "pred_text": pred_text,
-                    "pred_tokens": f"{pred_tokens}",
-                    "target_text": target_text,
-                    "target_tokens": f"{target_tokens}"
-                }
-
-    avg_loss = total_loss / total_batches if total_batches > 0 else 0
-    avg_accuracy = total_accuracy / total_batches if total_batches > 0 else 0
-
-    validation_table = wandb.Table(columns=["sample_id", "predicted_text", "predicted_tokens", "target", "target_tokens"])
-    for sample_id, data in val_samples.items():
-        validation_table.add_data(
-            sample_id,
-            data.get("pred_text", ""),
-            data.get("pred_tokens", ""),
-            data.get("target_text", ""),
-            data.get("target_tokens", "")
-        )
-    wandb.log({"validation_text": validation_table})
-
-    return avg_loss, avg_accuracy
-
-def train(model, tokenizer, train_dataloader, eval_dataloader, device):
-    model.train()
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.1)
-    criterion = torch.nn.CrossEntropyLoss()
-    samples = {}
-
-    for epoch in range(EPOCHS):
-        print(f"=== Epoch {epoch+1} ===")
-        running_loss = 0.0
-        running_accuracy = 0.0
-        total_batches = 0
-
-        for batch_idx, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch+1}")):
-            mels = batch["mel"].to(device)
-            caption_ids = batch["caption_ids"].to(device)
-            B = mels.size(0)
-
-            target = caption_ids[:, 1:].contiguous()  # [B, T-1]
-            prediction = model(tokens=caption_ids, mel=mels)  # [B, T, Vocab]
-
-            avg_batch_accuracy = compute_avg_masked_accuracy_per_batch(prediction, target, B)
-            loss = criterion(prediction[:, :-1, :].transpose(1, 2), target)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item()
-            running_accuracy += avg_batch_accuracy
-            total_batches += 1
-
-            if epoch == 0:
-                for i in range(B):
-                    first_pred_text, _, first_pred_tokens, _ = log_predict_targets(tokenizer, target[i], prediction[i])
-                    samples[batch["sample_id"][i]] = {
-                        "first_pred_text": first_pred_text,
-                        "first_pred_tokens": f"{first_pred_tokens}"
-                    }
-
-            if epoch == EPOCHS - 1:
-                for i in range(B):
-                    final_pred_text, target_text, final_pred_tokens, target_tokens = log_predict_targets(tokenizer, target[i], prediction[i])
-                    samples[batch["sample_id"][i]] = {
-                        **samples[batch["sample_id"][i]],
-                        "final_pred_text": final_pred_text,
-                        "final_pred_tokens": f"{final_pred_tokens}",
-                        "target_text": target_text,
-                        "target_tokens": f"{target_tokens}"
-                    }
-
-        # ✅ Evaluate once at end of epoch
-        eval_avg_loss, eval_avg_accuracy = evaluate(model, tokenizer, eval_dataloader, device)
-
-        avg_train_loss = running_loss / total_batches if total_batches > 0 else 0
-        avg_train_accuracy = running_accuracy / total_batches if total_batches > 0 else 0
-
-        wandb.log({
-            "epoch": epoch + 1,
-            "train_loss": avg_train_loss,
-            "train_accuracy": avg_train_accuracy,
-            "eval_loss": eval_avg_loss,
-            "eval_accuracy": eval_avg_accuracy
-        })
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
-        print(f"Train Loss: {avg_train_loss:.4f} | Train Acc: {avg_train_accuracy:.4f}")
-        print(f"Eval  Loss: {eval_avg_loss:.4f} | Eval  Acc: {eval_avg_accuracy:.4f}")
-
-    # ✅ Final training samples table
-    text_table = wandb.Table(columns=["sample_id", "first_predicted_text", "first_predicted_tokens", "last_predicted", "target", "last_predicted_tokens", "target_tokens"])
-    for sample_id, data in samples.items():
-        text_table.add_data(
-            sample_id,
-            data.get("first_pred_text", ""),
-            data.get("first_pred_tokens", ""),
-            data.get("final_pred_text", ""),
-            data.get("target_text", ""),
-            data.get("final_pred_tokens", ""),
-            data.get("target_tokens", "")
-        )
-
-    wandb.log({"training_text": text_table})
-
-
-if __name__ == "__main__":
-    init_wandb()
+# ------------------------------------------
+# MAIN ENTRYPOINT
+# ------------------------------------------
+def main():
+    wandb.init(
+        project="whisper-welsh-finetune",
+        config={
+            "epochs": DEFAULT_EPOCHS,
+            "learning_rate": DEFAULT_LR
+        }
+    )
+    config = wandb.config
+    #print(f"Config: {config}")
     device = get_device()
+    print(f"Using device: {device}")
+
     model = whisper.load_model("tiny").to(device)
     tokenizer = whisper.tokenizer.get_tokenizer(multilingual=True)
 
-   # train_data = load_dataset("EthanGLEdwards/welsh-transcription-samples")['train']
-   # To select specfic range do .select(range(100))     
-    train_data = load_dataset("ClemSummer/welsh-transcription-samples-7k")['train']
-    
+    # ✅ Load your dataset & splits
+    dataset_name = "ClemSummer/welsh-transcription-samples-7k"
+    ds = load_dataset(dataset_name)
+
+    # ✅ Limit train data based on sweep param
+    dataset_size = min(config.dataset_size, DEFAULT_DATASET_SIZE)
+    train_data = ds["train"].select(range(dataset_size))
+    eval_data = ds["validation"]  # Keep full eval split (10%)
+
     train_dataset = AudioDataset(train_data, tokenizer)
+    eval_dataset = AudioDataset(eval_data, tokenizer)
+
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
         shuffle=True,
         collate_fn=whisper_collate_fn,
-        num_workers=4  # ✅ Use multiple workers!
+        num_workers=4
     )
 
-    #eval_data = load_dataset("EthanGLEdwards/welsh-transcription-samples")['validation']
-    eval_data = load_dataset("ClemSummer/welsh-transcription-samples-7k")['validation']
-
-    eval_dataset = AudioDataset(eval_data, tokenizer)
-    
     eval_dataloader = DataLoader(
         eval_dataset,
         batch_size=BATCH_SIZE,
         shuffle=False,
         collate_fn=whisper_collate_fn,
-        num_workers=2  # ✅ Same here
+        num_workers=2
     )
 
-    train(model, tokenizer, train_dataloader, eval_dataloader, device)
-    os.makedirs("data", exist_ok=True)
-    MODEL_FILE_NAME = "fine_tuned_welsh_model"
-    torch.save(model.state_dict(), f"data/{MODEL_FILE_NAME}.pth")
-    save_artifact(MODEL_FILE_NAME, "Tiny whisper model trained on welsh", "pth")
-
+    train(
+        model,
+        tokenizer,
+        train_dataloader,
+        eval_dataloader,
+        device,
+        config.epochs,
+        config.learning_rate
+    )
+    model_filename = f"fine_tuned_welsh_epochs_{config.epochs}.pth"
+    torch.save(model.state_dict(), model_filename)
+    print(f"Saved model to {model_filename}")
     wandb.finish()
+
+# ------------------------------------------
+# SCRIPT ENTRY
+# ------------------------------------------
+if __name__ == "__main__":
+    main()

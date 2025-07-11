@@ -2,6 +2,14 @@ import whisper
 import torch
 import torch.nn.functional as F
 
+def get_device():
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"
+    print(f"Using device: {device}")
+    return device
 
 def log_predict_targets(tokenizer, target, prediction):
     pred_tokens = torch.argmax(prediction[:-1, :], dim=-1).contiguous()  # [B, T-1]
