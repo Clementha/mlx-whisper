@@ -25,7 +25,7 @@ See all code with welsh_... prefix
 - Downloads the dataset: https://huggingface.co/datasets/EthanGLEdwards/welsh-transcription-samples/viewer/default/train?views%5B%5D=train  - this is a mini dataset for coding etc, not used trained on (see `making_dataset.ipynb` that generates it and `welsh_dataset.ipynb` to read it and view)
 1. Dataset created - see `welsh_3split.py` that generates the dataset, and `welsh_dataset_push_to_hf.py` that pushes to hugging face. Basis is: https://huggingface.co/datasets/mozilla-foundation/common_voice_13_0 & output is: https://huggingface.co/datasets/ClemSummer/welsh-transcription-samples-7k 
 2. Run `welsh_train.py` that will train and evaludate the model
-3. To run inference: `uv run streamlit run src/welsh_inference.py`
+3. To run inference: `uv run streamlit run src/welsh_audio_inference.py`
 
 Image of it working!
 
