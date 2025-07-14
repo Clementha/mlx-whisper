@@ -30,6 +30,10 @@ See all code with welsh_... prefix
 Image of it working!
 
 <img width="1495" height="668" alt="image" src="https://github.com/user-attachments/assets/f190c85c-ef23-4deb-ae72-ae5147176d4d" />
+See how it misinterpretted the audio clipping as German, and gave the wrong translation VS the fine tuned one.
+
+And another one:
+<img width="814" height="705" alt="anothereg" src="https://github.com/user-attachments/assets/15a35a72-3b4a-4f47-93ba-ab4a9e77f2ad" />
 
 Weights and biases:
 
