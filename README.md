@@ -1,7 +1,7 @@
 # mlx-whisper
 Use whisper model to process audio to do:
 - Task 1. Template - Hello, my name is Bes. This will take three recordings of "Hello, my name is Bes." and fine tune whisper to be able to transcribe Bes (by default it is Bez/Beth etc)
-- Task 2. Teach whisper tiny welsh! 
+- Task 2. Teach whisper tiny welsh! See [presentation slides](./presentation.pdf)
 
 ## Pre-requisities 
 - Python 3.10
